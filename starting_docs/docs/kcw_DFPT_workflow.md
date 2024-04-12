@@ -1,4 +1,4 @@
-# DFPT workflow
+# DFPT workflow analysis
 
 Example on ZnO is [here](https://koopmans-functionals.org/en/latest/tutorials/tutorial_3.html).
 Remember to set:
