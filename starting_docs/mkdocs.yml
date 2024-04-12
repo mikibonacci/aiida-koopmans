@@ -1,0 +1,23 @@
+site_name: aiida-koopmans
+theme:
+  name: readthedocs
+  font:
+    text: Roboto
+  features:
+    - header.autohide
+    - navigation.tabs
+    - navigation.sections
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - From ASE to PwBaseWorkChain: conversion.md
+  - DFPT workflow: kcw_DFPT_workflow.md
