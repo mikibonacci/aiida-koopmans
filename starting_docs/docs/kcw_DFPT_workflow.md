@@ -78,7 +78,7 @@ Some pseudos are shipped with the package.
 
 This is a 5 step calculation, where we divided the occupied manifold in 4 parts, following the pdos results (done before) and 1 empty state manifold.
 We use the `exclude_bands` parameters to select our bands.
-How to automate this? wise analyisis of pDOS.
+How to automate this? wise analysis of pDOS.
 
 Questions:
 - can you exclude bands really? or you can only use the parameter to split?

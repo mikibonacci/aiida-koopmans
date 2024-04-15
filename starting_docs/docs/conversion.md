@@ -83,7 +83,7 @@ Then,  the `DFTPWWorkflow` runs the PWCalculator via the `run_calculator` method
 **Here** I implemented the logic to generate a PwBaseWorkChain instance via the method `get_builder_from_ase()` and then run it. **We just run and not
 submit because I want to run without services, for now**. But this can change.
 
-We then store the completed PwBaseWorkChain instance in the `scf_wchain` attribute of the calculator, as well as the same attribute but for the whole DFPTWorkflow.
+We then store the completed PwBaseWorkChain instance in the `dft_wchain` dictionary (under the key "scf" or f"{calc.parameters.calculation}"), attribute of the calculator, as well as the same attribute but for the whole DFPTWorkflow.
 
 ## (3) Analysing results 
 
@@ -102,5 +102,11 @@ We then store the calcjob as attribute of the DFPTWorkflow (`workflow.wann2kc_ca
 
 ### (4.1) The scf parent folder
 
-We have to provide the scf parent folder. This can be accessed via the `workflow.scf_wkchain.outputs.remote_folder`, and should be stored as `KcwCalculation.inputs.parent_folder`. 
+We have to provide the scf parent folder. This can be accessed via the `workflow.dft_wchain["scf"].outputs.remote_folder`, and should be stored as `KcwCalculation.inputs.parent_folder`. 
 We do this in an hardcoded way at line ~ 688 of `src/koopmans/workflows/_workflow.py`.
+
+# From ASE calculators to AiiDA WorkChains in the DFPT Koopmans workflow - Solids (Wannierization)
+
+The SCF part is the same, and then we connect with the NSCF part by means of additional logic in `src/koopmans/workflows/_workflow.py`, line ~ 689. in principle we check if the workflow has the `dft_wchains` dictionary and in particular if there is the "scf" one, to them takes its parent folder. 
+Now the idea is to create the wannierization WannierBandsWorkChain for each block by using the https://github.com/aiidateam/aiida-wannier90-workflows/blob/main/examples/example_04.py, which starts from a PwBaseWorkChain.
+
