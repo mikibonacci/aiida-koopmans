@@ -41,6 +41,17 @@ We do this by putting a `mode` input in the file. See the `aiida-koopmans/exampl
             },
             "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
         }
+      },
+      "metadata_kcw": {    #for now only specific instruction for kcw, but we should add also the others.
+          "options": {
+            "max_wallclock_seconds": 3600,
+            "resources": {
+                "num_machines": 1,
+                "num_mpiprocs_per_machine": 8,
+                "num_cores_per_mpiproc": 1
+            },
+            "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
+        }
       }
     }
   },
@@ -88,7 +99,7 @@ We then store the completed PwBaseWorkChain instance in the `dft_wchain` diction
 ## (3) Analysing results 
 
 This is needed in order to populate the `results` attribute of the PWCalculator, as in the standard ASE-only DFPT. 
-We accomplish this still in the `calculate()` method of the PWCalculator, by calling a new `read_results()` method of the same calculator. 
+We accomplish this still in the `calculate()` method of the PWCalculator, by calling a new `read_results()` method of the same calculator. You can find the original version in the ase-koopmans package: https://github.com/elinscott/ase_koopmans/blob/master/ase/calculators/espresso/_espresso.py.
 This behaves as the usual method if `mode=='ase'`, but in case we are using AiiDA, it will just use the `espresso.io.read` function to read the `aiida.out` file with the trick of the `tempfile.TemporaryDirectory()`. 
 
 In this way, we in principle have provided all the needed IO functionalities of the standard Koopmans PWCalculator. 
@@ -98,15 +109,70 @@ In this way, we in principle have provided all the needed IO functionalities of 
 This is done in a different way, without a particular reason. The `new_calculator()` method is called in the `DFPTWorkflow._run()` (line ~187) and then we act again in the Calculator, here being the `Wann2KCCalculator` class. 
 
 Here I really override the standard `calculate` method, by using the same trick as pw: we check if the mode is 'ase' or not, if not we call the `from_wann2kc_to_KcwCalculation` (now just a function, in the same file of `Wann2KCCalculator` for simplicity) and we run the calculation, which is a `KcwCalculation`, implemented in the `aiida-koopmans` plugin. 
-We then store the calcjob as attribute of the DFPTWorkflow (`workflow.wann2kc_calculation`).
+We then store the calcjob as attribute of the DFPTWorkflow (`DFPTWorkflow.wann2kc_calculation`).
 
 ### (4.1) The scf parent folder
 
 We have to provide the scf parent folder. This can be accessed via the `workflow.dft_wchain["scf"].outputs.remote_folder`, and should be stored as `KcwCalculation.inputs.parent_folder`. 
 We do this in an hardcoded way at line ~ 688 of `src/koopmans/workflows/_workflow.py`.
 
+## (5) The screening and ham calculations
+
+These are managed moreless in the same way of the wann2kc calculation. We define the corresponding `read_results` and `calculate` methods. I think the builder generator can be generalized among all the KcwCalculation instances.
+
+### the filename when we `read_results()`
+
+The ase.io.read function has some problem in dealing with "aiida.out" filename, so when we read the results we provide the same filename as it would have been decided in standard ASE calc:
+
+```python
+with tempfile.TemporaryDirectory() as dirpath:
+  # Open the output file from the AiiDA storage and copy content to the temporary file
+  for filename in retrieved.base.repository.list_object_names():
+      if '.out' in filename:
+          # Create the file with the desired name
+          readable_filename = "ks.kso"
+          temp_file = pathlib.Path(dirpath) / readable_filename
+          with retrieved.open(filename, 'rb') as handle:
+              temp_file.write_bytes(handle.read())
+      
+          output = io.read(temp_file)
+```
+
+
 # From ASE calculators to AiiDA WorkChains in the DFPT Koopmans workflow - Solids (Wannierization)
 
-The SCF part is the same, and then we connect with the NSCF part by means of additional logic in `src/koopmans/workflows/_workflow.py`, line ~ 689. in principle we check if the workflow has the `dft_wchains` dictionary and in particular if there is the "scf" one, to them takes its parent folder. 
+## DFT: scf+nscf
+The SCF part is the sameas above, and then we connect with the NSCF part by means of additional logic in `src/koopmans/workflows/_workflow.py`, line ~ 689. in principle we check if the workflow has the `dft_wchains` dictionary and in particular if there is the "scf" one, to them takes its parent folder. 
 Now the idea is to create the wannierization WannierBandsWorkChain for each block by using the https://github.com/aiidateam/aiida-wannier90-workflows/blob/main/examples/example_04.py, which starts from a PwBaseWorkChain.
+
+## Separated Wannierization
+I submit separated `Wannier90BandsWorkChain`, following the loop on block as in the Koopmans `WannierizeWorkflow`. So the block, projections, are given by input in the JSON file. Each workchain is then store under the `w90_wchains` attribute of the `WannierizeWorkflow` instance. The builder is generated on the fly and stored as attribute of the first calculator which is generated for each block. The calculator is the `Wannier90Calculator` (*src/koopmans/calculators/_wannier90.py*) where I define a `calculate` method in such a way to override the one which is inherited from its parent calculator classes. This calculate method is triggered when we use the `run_calculator` of the `WannierizeWorkflow`. The `read_results` method is defined as in the `PWCalculator` (note the `*wout` extension here).
+
+In the `WannierizeWorkflow`, for each block (i.e. iteration in the loop), I wait for the generation of the first w90 calculator and then I do:
+```pyhton
+if not self.parameters.mode == "ase":
+  builder = get_wannier90bandsworkchain_builder_from_ase(self, calc_w90)
+  calc_w90.builder_aiida = builder
+  self.run_calculator(calc_w90)
+  self.w90_wchains[block.directory.name] = calc_w90.wchain
+```
+This is defined in *src/koopmans/workflows/_wannierize.py*. We generate and submit an AiiDA `Wannier90BandsWorkChain`, which contains all the logic to obtain final Wannier bands, for each block.
+
+Two issues with the `aiida-wannier90-workflows` package:
+
+-  we should always set `builder.wannier90.shift_energy_windows = False`, otherwise if we have fixed occupation we have an exception (does not find the Fermi energy);
+-  not possible to start from nscf, only scf. Actually this is a sort of a bug, because I know that starting from scf allows to set a lot of things automatically, but in our case we want to start from nscf, and not scf, as we need several wannierizations and so it would be a waste of computational time;
+
+**I have done some modification in the aiida-wannier90-workflows to support these features** -> need to make a PR or at least an issue. 
+
+
+
+### Merging wannier files and the `produce_wannier90_files` function
+
+The `produce_wannier90_files` function is in the aiida-koopmans/data/utils.py and is used to produce the singlefiledata then input of the KcwCalculation: wannier U matrices, wannier centres.
+The merging of files from different wannierization is quite complex but I did some large modifications in the following routines of koopmans:
+
+- `merge_wannier_files` + the one called there.
+
+I store the merged files in the self.wannier90_files dictionary.
 

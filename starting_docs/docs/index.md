@@ -17,6 +17,11 @@ the idea is to put them here, once everything works at the 0-th order.
 - pseudos from the JSON file (effort: medium-to-high)
 - multiple metadata for the different calculations (effort: easy)
 - guide on how to start aiida and koopmans@aiida in few minutes (effort: easy-to-medium)
+- tests
+- link and not hard copy of saves.
+- test ASE vs AiiDA for ozone and silicon.
+- test also in case you need to merge blocks (ZnO maybe)?
+- src/koopmans/calculators/_wann2kc.py why I have to rename the builder.wann inputs.
 
 ### Questions:
 

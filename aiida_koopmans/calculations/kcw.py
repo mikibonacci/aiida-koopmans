@@ -6,6 +6,9 @@ from aiida import orm
 
 from aiida_quantumespresso.calculations.namelists import NamelistsCalculation
 
+from aiida.plugins import DataFactory
+SingleFileData = DataFactory('core.singlefile')
+
 class KcwCalculation(NamelistsCalculation):
     """`CalcJob` implementation for the kcw.x code of Quantum ESPRESSO.
 
@@ -40,6 +43,13 @@ class KcwCalculation(NamelistsCalculation):
         from aiida.orm import BandsData, ProjectionData
         super().define(spec)
         spec.input('parent_folder', valid_type=(orm.RemoteData, orm.FolderData), help='The output folder of a pw.x calculation')
+        #spec.input('wann_occ_hr', valid_type=SingleFileData, help='wann_occ_hr', required=False)
+        #spec.input('wann_emp_hr', valid_type=SingleFileData, help='wann_emp_hr', required=False)
+        spec.input('wann_u_mat', valid_type=SingleFileData, help='wann_occ_u', required=False)
+        spec.input('wann_emp_u_mat', valid_type=SingleFileData, help='wann_emp_u', required=False)
+        spec.input('wann_emp_u_dis_mat', valid_type=SingleFileData, help='wann_dis_u', required=False)
+        spec.input('wann_centres_xyz', valid_type=SingleFileData, help='wann_occ_centres', required=False)
+        spec.input('wann_emp_centres_xyz', valid_type=SingleFileData, help='wann_emp_centres', required=False)
         spec.input('settings', valid_type=orm.Dict, required=True, default=lambda: orm.Dict({
             'CMDLINE': ["-in", cls._DEFAULT_INPUT_FILE],
             }), help='Use an additional node for special settings',) #validator=validate_parameters,)
@@ -63,3 +73,14 @@ class KcwCalculation(NamelistsCalculation):
         spec.exit_code(340, 'ERROR_PARSING_PROJECTIONS',
             message='An exception was raised parsing bands and projections.')
         # yapf: enable
+        
+    def prepare_for_submission(self, folder):
+        calcinfo = super().prepare_for_submission(folder)
+        
+        for wann_file in ['wann_u_mat','wann_emp_u_mat','wann_emp_u_dis_mat','wann_centres_xyz','wann_emp_centres_xyz']:
+            if hasattr(self.inputs,wann_file): 
+                wannier_singelfiledata = getattr(self.inputs, wann_file)
+                calcinfo.local_copy_list.append((wannier_singelfiledata.uuid, wannier_singelfiledata.filename, wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
+ 
+                
+        return calcinfo 
