@@ -1,4 +1,4 @@
-# DFPT workflow analysis
+# DFPT workflow
 
 Example on ZnO is [here](https://koopmans-functionals.org/en/latest/tutorials/tutorial_3.html).
 Remember to set:
@@ -6,6 +6,7 @@ Remember to set:
 export PARA_PREFIX="mpirun -np 4" 
 export OMP_NUM_THREADS=1
 ```
+ codes should be in the PATH (pw.x, kcw.x...)
 
 ```bash
 (quantum-espresso-7.2) jovyan@6f222c4867e7:~/codes/koopmans/tutorials/tutorial_3$ koopmans zno.json 

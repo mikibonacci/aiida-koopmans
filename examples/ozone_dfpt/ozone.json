@@ -7,19 +7,30 @@
     "alpha_numsteps": 1,
     "pseudo_library": "sg15",
     "mode": {
-      "pw_code": "pw-7.2-ok@localhost",
-      "kcw_code": "kcw-7.2-ok@localhost",
+      "pw_code": "pw-qe-ki_proj@localhost",
+      "kcw_code": "kcw-qe-ki_proj@localhost",
       "metadata": {
           "options": {
             "max_wallclock_seconds": 3600,
             "resources": {
                 "num_machines": 1,
-                "num_mpiprocs_per_machine": 1,
+                "num_mpiprocs_per_machine": 8,
                 "num_cores_per_mpiproc": 1
             },
             "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
         }
+      },
+      "metadata_kcw": {
+        "options": {
+          "max_wallclock_seconds": 3600,
+          "resources": {
+              "num_machines": 1,
+              "num_mpiprocs_per_machine": 8,
+              "num_cores_per_mpiproc": 1
+          },
+          "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
       }
+    }
     }
   },
   "atoms": {

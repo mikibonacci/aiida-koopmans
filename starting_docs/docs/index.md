@@ -14,7 +14,8 @@ The Koopmans code should work as espected when AiiDA is not used.
 For now, some method like `get_builder_from_ase` are in the fork of the Koopmans code. However,
 the idea is to put them here, once everything works at the 0-th order.
 
-- pseudos from the JSON file (effort: medium-to-high)
+- pseudos from the JSON file (effort: medium-to-high) - for now in the aiida version we use the pseudo dojo (we need NC)
+- TypeError: Object of type WorkChainNode is not JSON serializable => if we run the AiiDA enabled from command line: we should delete all the aiida types from the workflow, after it finishes
 - multiple metadata for the different calculations (effort: easy)
 - guide on how to start aiida and koopmans@aiida in few minutes (effort: easy-to-medium)
 - tests
@@ -22,6 +23,7 @@ the idea is to put them here, once everything works at the 0-th order.
 - test ASE vs AiiDA for ozone and silicon.
 - test also in case you need to merge blocks (ZnO maybe)?
 - src/koopmans/calculators/_wann2kc.py why I have to rename the builder.wann inputs.
+- validate the results - for now aiida and ase give different results, but I think this is linked to the different pseudos. check
 
 ### Questions:
 
