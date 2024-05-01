@@ -14,6 +14,7 @@ import tempfile
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
 
+
 LOCALHOST_NAME = "localhost-test"
 
 executables = {
@@ -150,7 +151,7 @@ def get_builder_from_ase(pw_calculator):
         code=aiida_inputs["pw_code"],
         structure=structure,
         overrides={
-            "pseudo_family": "PseudoDojo/0.4/PBE/FR/standard/upf",
+            "pseudo_family": "PseudoDojo/0.4/PBE/SR/standard/upf",
             "pw": {"parameters": pw_overrides},
         },
         electronic_type=ElectronicType.INSULATOR,
@@ -453,14 +454,21 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator. 
     # in this way we have everything we need for each different block of the wannierization step.
     
-    from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder 
-    from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
-    from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization, set_num_bands, set_kpoints
-    from aiida_wannier90_workflows.utils.workflows.builder.submit import submit_and_add_group 
+    from aiida import load_profile, orm
     from aiida_wannier90_workflows.common.types import WannierProjectionType
+    from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
+    from aiida_wannier90_workflows.utils.workflows.builder.serializer import (
+        print_builder,
+    )
+    from aiida_wannier90_workflows.utils.workflows.builder.setter import (
+        set_kpoints,
+        set_num_bands,
+        set_parallelization,
+    )
+    from aiida_wannier90_workflows.utils.workflows.builder.submit import (
+        submit_and_add_group,
+    )
     from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
-
-    from aiida import orm,load_profile
     load_profile()
     
     nscf = wannierize_workflow.dft_wchains["nscf"]
