@@ -448,3 +448,122 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
         ]
 
     return builder
+
+def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calculator):
+    # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator. 
+    # in this way we have everything we need for each different block of the wannierization step.
+    
+    from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder 
+    from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
+    from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization, set_num_bands, set_kpoints
+    from aiida_wannier90_workflows.utils.workflows.builder.submit import submit_and_add_group 
+    from aiida_wannier90_workflows.common.types import WannierProjectionType
+    from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
+
+    from aiida import orm,load_profile
+    load_profile()
+    
+    nscf = wannierize_workflow.dft_wchains["nscf"]
+    aiida_inputs = wannierize_workflow.parameters.mode
+    
+    codes = {
+        "pw": aiida_inputs["pw_code"],
+        "pw2wannier90": aiida_inputs["pw2wannier90_code"],
+        "projwfc": aiida_inputs["projwfc_code"],
+        "wannier90": aiida_inputs["wannier90_code"],
+    }    
+    
+    builder = Wannier90BandsWorkChain.get_builder_from_protocol(
+            codes=codes,
+            structure=nscf.inputs.pw.structure,
+            pseudo_family="PseudoDojo/0.4/PBE/FR/standard/upf",
+            protocol="fast",
+            projection_type=WannierProjectionType.ANALYTIC,
+        )
+
+    # Use nscf explicit kpoints
+    kpoints = orm.KpointsData()
+    kpoints.set_cell_from_structure(builder.structure)
+    kpoints.set_kpoints(nscf.outputs.output_band.get_array('kpoints'),cartesian=False)
+    builder.wannier90.wannier90.kpoints = kpoints
+
+    # set kpath using the WannierizeWFL data.
+    k_coords = []
+    k_labels = []
+    special_k = wannierize_workflow.kpoints.path.todict()["special_points"]
+    t=0
+    for label in wannierize_workflow.kpoints.path.todict()["labelseq"]:
+        k_labels.append([t,label])
+        k_coords.append(special_k[label].tolist())
+        t=+1
+    kpoints_path = orm.KpointsData()
+    kpoints_path.set_kpoints(k_coords,labels=k_labels)
+    builder.kpoint_path  =  kpoints_path
+
+
+    # Start parameters and projections setting using the Wannier90Calculator data.
+    params = builder.wannier90.wannier90.parameters.get_dict()
+
+    del builder.scf
+    del builder.nscf
+    del builder.projwfc
+
+    for k,v in w90_calculator.parameters.items():
+        if k not in ["kpoints","kpoint_path","projections"]:
+            params[k] = v 
+
+    # projections in wannier90 format:
+    converted_projs = []
+    for proj in w90_calculator.todict()['_parameters']["projections"]:
+        # for now we support only the following conversion:
+        # proj={'fsite': [0.0, 0.0, 0.0], 'ang_mtm': 'sp3'} ==> converted_proj="f=0.0,0.0,0.0:sp3"
+        position = str(proj["fsite"]).replace("[","").replace("]","").replace(" ","")
+        orbital = proj["ang_mtm"]
+        converted_proj = "f="+position+":"+orbital
+        converted_projs.append(converted_proj)
+        
+    builder.wannier90.wannier90.projections = orm.List(list=converted_projs)
+    params.pop('auto_projections', None) # Uncomment this if you want analytic atomic projections
+
+    ## END explicit atomic projections:
+
+    # putting the fermi energy to make it work.
+    try:
+        fermi_energy = nscf.outputs.output_parameters.get_dict()["fermi_energy_up"]
+    except:
+        fermi_energy = nscf.outputs.output_parameters.get_dict()["fermi_energy"]
+    params["fermi_energy"] = fermi_energy
+
+    params = orm.Dict(dict=params)
+    builder.wannier90.wannier90.parameters = params
+
+    #resources
+    builder.pw2wannier90.pw2wannier90.metadata = aiida_inputs["metadata"]
+    
+    default_w90_metadata = {
+          "options": {
+            "max_wallclock_seconds": 3600,
+            "resources": {
+                "num_machines": 1,
+                "num_mpiprocs_per_machine": 1,
+                "num_cores_per_mpiproc": 1
+            },
+            "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
+        }
+      }
+    builder.wannier90.wannier90.metadata = aiida_inputs.get('metadata_w90', default_w90_metadata)
+    
+    builder.pw2wannier90.pw2wannier90.parent_folder = nscf.outputs.remote_folder
+    
+    # for now try this, as the get_fermi_energy_from_nscf + get_homo_lumo does not work for fixed occ.
+    # maybe add some parsing (for fixed occ) in the aiida-wannier90-workflows/src/aiida_wannier90_workflows/utils/workflows/pw.py
+    builder.wannier90.shift_energy_windows = False
+    
+    # adding pw2wannier90 parameters, required here. We should do in overrides.
+    params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
+    params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
+    params_pw2wannier90['inputpp']["spin_component"] = "up"
+    builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
+    
+    
+    return builder
