@@ -13,9 +13,18 @@ import tempfile
 
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
+from aiida_quantumespresso.calculations.pw import PwCalculation
+from aiida_wannier90.calculations.wannier90 import Wannier90Calculation
 from ase.io.espresso import kch_keys, kcp_keys, kcs_keys, pw_keys, w2kcw_keys
 
+from aiida_koopmans.calculations.kcw import KcwCalculation
+
 LOCALHOST_NAME = "localhost-test"
+KCW_BLOCKED_KEYWORDS = [t[1] for t in KcwCalculation._blocked_keywords]
+PW_BLOCKED_KEYWORDS = [t[1] for t in PwCalculation._blocked_keywords]
+WANNIER90_BLOCKED_KEYWORDS = [t[1] for t in Wannier90Calculation._BLOCKED_PARAMETER_KEYS]
+ALL_BLOCKED_KEYWORDS = KCW_BLOCKED_KEYWORDS + PW_BLOCKED_KEYWORDS + WANNIER90_BLOCKED_KEYWORDS + [f'celldm({i})' for i in range (1,7)]
+
 
 executables = {
     "koopmans": "diff",
@@ -66,7 +75,6 @@ def get_computer(name=LOCALHOST_NAME, workdir=None):
         computer.configure()
 
     return computer
-
 
 def get_code(entry_point, computer):
     """Get local code.
@@ -135,16 +143,16 @@ def get_builder_from_ase(pw_calculator):
         "ELECTRONS": {},
     }
 
-    for k in ["calculation", "verbosity"]:  # ,"prefix"
-        if k in calc_params.keys():
+    for k in pw_keys['control']:
+        if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
             pw_overrides["CONTROL"][k] = calc_params[k]
 
-    for k in ["tot_charge", "tot_magnetization", "nbnd", "ecutwfc", "ecutrho", "nspin"]:
-        if k in calc_params.keys():
+    for k in pw_keys['system']:
+        if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
             pw_overrides["SYSTEM"][k] = calc_params[k]
 
-    for k in ["conv_thr"]:
-        if k in calc_params.keys():
+    for k in pw_keys['electrons']:
+        if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
             pw_overrides["ELECTRONS"][k] = calc_params[k]
 
     builder = PwBaseWorkChain.get_builder_from_protocol(
@@ -173,19 +181,19 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
 
     from aiida import load_profile, orm
 
-    from aiida_koopmans.calculations.kcw import KcwCalculation
-
     load_profile()
 
     builder = KcwCalculation.get_builder()
-
     wann2kc_control_namelist = w2kcw_keys['control']
     wann2kc_wannier_namelist = w2kcw_keys['wannier']
+
 
     control_dict = {
         k: v if k in wann2kc_control_namelist else None
         for k, v in wann2kc_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
+
     control_dict["calculation"] = "wann2kcw"
 
     if not any(wann2kc_calculator.atoms.pbc):
@@ -198,6 +206,8 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
     wannier_dict = {
         k: v if k in wann2kc_wannier_namelist else None
         for k, v in wann2kc_calculator.parameters.items()
+        # ? Using all here, as blocked Wannier90 keywords doesn't contain 'seedname', but kcw does
+        if k not in ALL_BLOCKED_KEYWORDS
     }
 
     for k in list(wannier_dict):
@@ -251,6 +261,7 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     control_dict = {
         k: v if k in kch_control_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
     control_dict["calculation"] = "ham"
 
@@ -265,6 +276,7 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     wannier_dict = {
         k: v if k in kch_wannier_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
 
     for k in list(wannier_dict):
@@ -274,6 +286,7 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     ham_dict = {
         k: v if k in kch_ham_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
 
     for k in list(ham_dict):
@@ -328,6 +341,7 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     control_dict = {
         k: v if k in kcs_control_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
     control_dict["calculation"] = "screen"
 
@@ -341,6 +355,7 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     wannier_dict = {
         k: v if k in kcs_wannier_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
 
     for k in list(wannier_dict):
@@ -350,6 +365,7 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     screening_dict = {
         k: v if k in kcs_screening_namelist else None
         for k, v in kcw_calculator.parameters.items()
+        if k not in ALL_BLOCKED_KEYWORDS
     }
 
     for k in list(screening_dict):

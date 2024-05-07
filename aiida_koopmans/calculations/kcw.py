@@ -3,10 +3,9 @@
 from pathlib import Path
 
 from aiida import orm
-
+from aiida.plugins import DataFactory
 from aiida_quantumespresso.calculations.namelists import NamelistsCalculation
 
-from aiida.plugins import DataFactory
 SingleFileData = DataFactory('core.singlefile')
 
 class KcwCalculation(NamelistsCalculation):
@@ -18,7 +17,7 @@ class KcwCalculation(NamelistsCalculation):
 
     _default_namelists = ['CONTROL','WANNIER','SCREEN','HAM']
     _blocked_keywords = [
-        ('CONTROL', 'outdir', NamelistsCalculation._OUTPUT_SUBFOLDER), 
+        ('CONTROL', 'outdir', NamelistsCalculation._OUTPUT_SUBFOLDER),
         ('CONTROL', 'prefix', NamelistsCalculation._PREFIX),
         ('WANNIER', 'seedname', NamelistsCalculation._PREFIX),
     ]
@@ -53,11 +52,11 @@ class KcwCalculation(NamelistsCalculation):
         spec.input('settings', valid_type=orm.Dict, required=True, default=lambda: orm.Dict({
             'CMDLINE': ["-in", cls._DEFAULT_INPUT_FILE],
             }), help='Use an additional node for special settings',) #validator=validate_parameters,)
-        
+
         spec.output('output_parameters', valid_type=orm.Dict, required=False)
         spec.output('bands', valid_type=BandsData, required=False)
         spec.default_output_node = 'output_parameters'
-        
+
         spec.exit_code(301, 'ERROR_NO_RETRIEVED_TEMPORARY_FOLDER',
             message='The retrieved temporary folder could not be accessed.')
         spec.exit_code(303, 'ERROR_OUTPUT_XML_MISSING',
@@ -73,14 +72,14 @@ class KcwCalculation(NamelistsCalculation):
         spec.exit_code(340, 'ERROR_PARSING_PROJECTIONS',
             message='An exception was raised parsing bands and projections.')
         # yapf: enable
-        
+
     def prepare_for_submission(self, folder):
         calcinfo = super().prepare_for_submission(folder)
-        
+
         for wann_file in ['wann_u_mat','wann_emp_u_mat','wann_emp_u_dis_mat','wann_centres_xyz','wann_emp_centres_xyz']:
-            if hasattr(self.inputs,wann_file): 
+            if hasattr(self.inputs,wann_file):
                 wannier_singelfiledata = getattr(self.inputs, wann_file)
                 calcinfo.local_copy_list.append((wannier_singelfiledata.uuid, wannier_singelfiledata.filename, wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
- 
-                
-        return calcinfo 
+
+
+        return calcinfo
