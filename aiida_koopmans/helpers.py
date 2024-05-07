@@ -13,7 +13,7 @@ import tempfile
 
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
-
+from ase.io.espresso import kch_keys, kcp_keys, kcs_keys, pw_keys, w2kcw_keys
 
 LOCALHOST_NAME = "localhost-test"
 
@@ -109,7 +109,7 @@ def get_builder_from_ase(pw_calculator):
     """
     We should check automatically on the accepted keywords in PwCalculation and where are. Should be possible.
     we suppose that the calculator has an attribute called mode e.g.
-    
+
     pw_calculator.mode = {
         "pw_code": "pw-7.2-ok@localhost",
         "metadata": {
@@ -179,21 +179,11 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
 
     builder = KcwCalculation.get_builder()
 
-    control_namelist = [
-        "kcw_iverbosity",
-        "kcw_at_ks",
-        "lrpa",
-        "mp1",
-        "mp2",
-        "mp3",
-        "homo_only",
-        "read_unitary_matrix",
-        "l_vcut",
-        "spin_component",
-    ]
+    wann2kc_control_namelist = w2kcw_keys['control']
+    wann2kc_wannier_namelist = w2kcw_keys['wannier']
 
     control_dict = {
-        k: v if k in control_namelist else None
+        k: v if k in wann2kc_control_namelist else None
         for k, v in wann2kc_calculator.parameters.items()
     }
     control_dict["calculation"] = "wann2kcw"
@@ -205,16 +195,8 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
         if control_dict[k] is None:
             control_dict.pop(k)
 
-    wannier_namelist = [
-        "check_ks",
-        "num_wann_occ",
-        "num_wann_emp",
-        "have_empty",
-        "has_disentangle",
-    ]
-
     wannier_dict = {
-        k: v if k in wannier_namelist else None
+        k: v if k in wann2kc_wannier_namelist else None
         for k, v in wann2kc_calculator.parameters.items()
     }
 
@@ -262,22 +244,12 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
 
     builder = KcwCalculation.get_builder()
 
-    control_namelist = [
-        "kcw_iverbosity",
-        "kcw_at_ks",
-        "calculation",
-        "lrpa",
-        "mp1",
-        "mp2",
-        "mp3",
-        "homo_only",
-        "read_unitary_matrix",
-        "l_vcut",
-        "spin_component",
-    ]
+    kch_control_namelist = kch_keys['control']
+    kch_wannier_namelist = kch_keys['wannier']
+    kch_ham_namelist = kch_keys['ham']
 
     control_dict = {
-        k: v if k in control_namelist else None
+        k: v if k in kch_control_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
     control_dict["calculation"] = "ham"
@@ -289,16 +261,9 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
         if control_dict[k] is None:
             control_dict.pop(k)
 
-    wannier_namelist = [
-        "check_ks",
-        "num_wann_occ",
-        "num_wann_emp",
-        "have_empty",
-        "has_disentangle",
-    ]
 
     wannier_dict = {
-        k: v if k in wannier_namelist else None
+        k: v if k in kch_wannier_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
 
@@ -306,16 +271,8 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
         if wannier_dict[k] is None:
             wannier_dict.pop(k)
 
-    ham_namelist = [
-        "do_bands",
-        "use_ws_distance",
-        "write_hr",
-        "l_alpha_corr",
-        "alpha_guess",
-    ]
-
     ham_dict = {
-        k: v if k in ham_namelist else None
+        k: v if k in kch_ham_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
 
@@ -364,22 +321,12 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
 
     builder = KcwCalculation.get_builder()
 
-    control_namelist = [
-        "kcw_iverbosity",
-        "kcw_at_ks",
-        "calculation",
-        "lrpa",
-        "mp1",
-        "mp2",
-        "mp3",
-        "homo_only",
-        "read_unitary_matrix",
-        "l_vcut",
-        "spin_component",
-    ]
+    kcs_control_namelist = kcs_keys['control']
+    kcs_wannier_namelist = kcs_keys['wannier']
+    kcs_screening_namelist = kcs_keys['screen']
 
     control_dict = {
-        k: v if k in control_namelist else None
+        k: v if k in kcs_control_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
     control_dict["calculation"] = "screen"
@@ -391,16 +338,8 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     if not any(kcw_calculator.atoms.pbc):
         control_dict["assume_isolated"] = "m-t"
 
-    wannier_namelist = [
-        "check_ks",
-        "num_wann_occ",
-        "num_wann_emp",
-        "have_empty",
-        "has_disentangle",
-    ]
-
     wannier_dict = {
-        k: v if k in wannier_namelist else None
+        k: v if k in kcs_wannier_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
 
@@ -408,15 +347,8 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
         if wannier_dict[k] is None:
             wannier_dict.pop(k)
 
-    screening_namelist = [
-        "tr2",  #: 1e-18,
-        "nmix",  #: 4,
-        "niter",  #: 33,
-        "check_spread",  #: True,
-    ]
-
     screening_dict = {
-        k: v if k in screening_namelist else None
+        k: v if k in kcs_screening_namelist else None
         for k, v in kcw_calculator.parameters.items()
     }
 
@@ -451,9 +383,9 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     return builder
 
 def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calculator):
-    # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator. 
+    # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator.
     # in this way we have everything we need for each different block of the wannierization step.
-    
+
     from aiida import load_profile, orm
     from aiida_wannier90_workflows.common.types import WannierProjectionType
     from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
@@ -470,17 +402,17 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     )
     from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
     load_profile()
-    
+
     nscf = wannierize_workflow.dft_wchains["nscf"]
     aiida_inputs = wannierize_workflow.parameters.mode
-    
+
     codes = {
         "pw": aiida_inputs["pw_code"],
         "pw2wannier90": aiida_inputs["pw2wannier90_code"],
         "projwfc": aiida_inputs["projwfc_code"],
         "wannier90": aiida_inputs["wannier90_code"],
-    }    
-    
+    }
+
     builder = Wannier90BandsWorkChain.get_builder_from_protocol(
             codes=codes,
             structure=nscf.inputs.pw.structure,
@@ -518,7 +450,7 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
 
     for k,v in w90_calculator.parameters.items():
         if k not in ["kpoints","kpoint_path","projections"]:
-            params[k] = v 
+            params[k] = v
 
     # projections in wannier90 format:
     converted_projs = []
@@ -529,7 +461,7 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
         orbital = proj["ang_mtm"]
         converted_proj = "f="+position+":"+orbital
         converted_projs.append(converted_proj)
-        
+
     builder.wannier90.wannier90.projections = orm.List(list=converted_projs)
     params.pop('auto_projections', None) # Uncomment this if you want analytic atomic projections
 
@@ -547,7 +479,7 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
 
     #resources
     builder.pw2wannier90.pw2wannier90.metadata = aiida_inputs["metadata"]
-    
+
     default_w90_metadata = {
           "options": {
             "max_wallclock_seconds": 3600,
@@ -560,18 +492,18 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
         }
       }
     builder.wannier90.wannier90.metadata = aiida_inputs.get('metadata_w90', default_w90_metadata)
-    
+
     builder.pw2wannier90.pw2wannier90.parent_folder = nscf.outputs.remote_folder
-    
+
     # for now try this, as the get_fermi_energy_from_nscf + get_homo_lumo does not work for fixed occ.
     # maybe add some parsing (for fixed occ) in the aiida-wannier90-workflows/src/aiida_wannier90_workflows/utils/workflows/pw.py
     builder.wannier90.shift_energy_windows = False
-    
+
     # adding pw2wannier90 parameters, required here. We should do in overrides.
     params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
     params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
     params_pw2wannier90['inputpp']["spin_component"] = "up"
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
-    
-    
+
+
     return builder
