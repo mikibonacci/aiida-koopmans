@@ -49,6 +49,7 @@ docs = [
     "markupsafe<2.1"
 ]
 
+# todo: Refine entry points here rather than just `koopmans`
 [project.entry-points."aiida.data"]
 "koopmans" = "aiida_koopmans.data:DiffParameters"
 
