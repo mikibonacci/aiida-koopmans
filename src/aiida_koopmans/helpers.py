@@ -518,7 +518,7 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     # adding pw2wannier90 parameters, required here. We should do in overrides.
     params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
     params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
-    params_pw2wannier90['inputpp']["spin_component"] = "up"
+    if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: params_pw2wannier90['inputpp']["spin_component"] = "up"
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
 
 
