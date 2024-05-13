@@ -1,6 +1,8 @@
 run the example via "koopmans si.json".
 delete the 'mode' input in the file to run the standard ASE Koopmans, or use the si_no_aiida.json version
 
+To run this examples, for now you need a particular pseudo family installed: `aiida-pseudo install pseudo-dojo -r FR -f upf`.
+
 ```bash
 conda activate codes #venv where I have installed the pw.x, pw2wannier90.x, kcw.x, wannier90, rsync
 export PARA_PREFIX="mpirun -np 8" 
