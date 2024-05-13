@@ -11,6 +11,9 @@ available in the PATH on almost any UNIX system.
 import shutil
 import tempfile
 
+import numpy as np
+
+
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
 from aiida_quantumespresso.calculations.pw import PwCalculation
@@ -446,14 +449,17 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     # set kpath using the WannierizeWFL data.
     k_coords = []
     k_labels = []
+    k_path=wannierize_workflow.kpoints.path.kpts
     special_k = wannierize_workflow.kpoints.path.todict()["special_points"]
+    k_linear,special_k_coords,special_k_labels = wannierize_workflow.kpoints.path.get_linear_kpoint_axis()
     t=0
-    for label in wannierize_workflow.kpoints.path.todict()["labelseq"]:
-        k_labels.append([t,label])
+    for coords,label in list(zip(special_k_coords,special_k_labels)):
+        t = np.where(k_linear==coords)[0]
+        k_labels.append([t[0],label])
         k_coords.append(special_k[label].tolist())
-        t=+1
+    
     kpoints_path = orm.KpointsData()
-    kpoints_path.set_kpoints(k_coords,labels=k_labels)
+    kpoints_path.set_kpoints(k_path,labels=k_labels,cartesian=False)
     builder.kpoint_path  =  kpoints_path
 
 
