@@ -7,8 +7,8 @@ build-backend = "flit_core.buildapi"
 # See https://www.python.org/dev/peps/pep-0621/
 name = "aiida-koopmans"
 dynamic = ["version"]  # read from aiida_koopmans/__init__.py
-description = "AiiDA  plugin that wraps the `kcw' executable."
-authors = [{name = "Miki Bonacci"}]
+description = "AiiDA  plugin that wraps the `kcw' executable and contains other utilites to run Koopmans@AiiDA."
+authors = [{name = "Miki Bonacci, Julian Geiger"}]
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = [
@@ -55,6 +55,12 @@ docs = [
 
 [project.entry-points."aiida.calculations"]
 "koopmans" = "aiida_koopmans.calculations.kcw:KcwCalculation"
+
+[project.entry-points."aiida.workflows"]
+"koopmans_workflow" = "aiida_koopmans.gui.koopmansworkchain.KoopmansWorkChain"
+
+[project.entry-points.'aiidalab_qe.properties']
+"koopmans" = "aiida_koopmans.gui.app:property"
 
 [project.entry-points."aiida.parsers"]
 "koopmans" = "aiida_koopmans.parsers.kcw:KcwParser"
