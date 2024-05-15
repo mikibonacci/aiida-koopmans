@@ -1,8 +1,9 @@
 from aiida import orm
 from aiida.engine.processes.workchains.workchain import WorkChain
-from aiida.engine import calcfunction
+from aiida.engine import calcfunction, workfunction
 import numpy as np
 
+from aiida.engine import ToContext
 
 from koopmans.workflows import KoopmansDFPTWorkflow, SinglepointWorkflow
 
@@ -38,12 +39,14 @@ class KoopmansWorkChain(WorkChain):
     def setup(self):
         wf = SinglepointWorkflow._fromjsondct(self.inputs.input_dictionary.get_dict())
         self.ctx.workflow = KoopmansDFPTWorkflow.fromparent(wf)
-        return
+
+        return 
     
     def run_process(self):
         # for now in the DFPT AiiDA wfl we just run_and_get_node, so no need to have the context.
         self.ctx.workflow._run()
         return
+        
     
     def results(self):
         
@@ -67,18 +70,23 @@ def merge_bands(remote_pw, method="dft"):
     bands = {"dft":[],"koopmans":[]}
     method_loop = "dft"
     for job in workchain.called:
-        if job.process_type == "aiida.calculations:koopmans":
-            method_loop = "koopmans"
         if job.process_type == "aiida.workflows:wannier90_workflows.bands":
             bands[method_loop].append(job.outputs.band_structure)
+        if job.process_type == "aiida.calculations:koopmans":
+            method_loop = "koopmans"
+            if "eigenvalues" in job.outputs.output_parameters.get_dict().keys():
+                bands[method_loop] = job.outputs.output_parameters.get_dict()["eigenvalues"]
                 
     for method_merge in [method.value]: 
-        new_bands_array = bands[method_merge][0].get_bands()
-        for i in range(1,len(bands[method_merge])):
-            new_bands_array = np.concatenate((new_bands_array,bands[method_merge][i].get_bands()),axis=1)
+        if method_merge == "koopmans":
+            new_bands_array = bands[method_merge]
+        else:
+            new_bands_array = bands[method_merge][0].get_bands()
+            for i in range(1,len(bands[method_merge])):
+                new_bands_array = np.concatenate((new_bands_array,bands[method_merge][i].get_bands()),axis=1)
             
         # Create a band structure object
-        merged_bands = bands[method_merge][0].clone()
+        merged_bands = bands["dft"][0].clone()
         merged_bands.set_bands(new_bands_array)
         # merged_bands.store()
         #bands[method].append(merged_bands)

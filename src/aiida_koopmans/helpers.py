@@ -295,8 +295,9 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     for k in list(ham_dict):
         if ham_dict[k] is None:
             ham_dict.pop(k)
-        if k == "do_bands":
-            ham_dict["do_bands"] = False
+    
+    # for now always true as we skip the smooth interpolation procedure.    
+    ham_dict["do_bands"] = True
 
     kcw_ham_params = {
         "CONTROL": control_dict,
@@ -321,7 +322,13 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
         builder.wann_emp_centres_xyz = kcw_calculator.wannier90_files["emp"][
             "centres_xyz"
         ]
-
+        
+    if hasattr(kcw_calculator, "kpoints"):
+        # I provide kpoints as an array (output in the wannierized band structure), so I need to convert them. 
+        kpoints = orm.KpointsData()
+        kpoints.set_kpoints(kcw_calculator.kpoints)
+        builder.kpoints = kpoints
+    
     return builder
 
 def from_kcwscreen_to_KcwCalculation(kcw_calculator):
@@ -398,7 +405,7 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
         builder.wann_emp_centres_xyz = kcw_calculator.wannier90_files["emp"][
             "centres_xyz"
         ]
-
+    
     return builder
 
 def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calculator):

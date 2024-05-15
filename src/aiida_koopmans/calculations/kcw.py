@@ -42,6 +42,7 @@ class KcwCalculation(NamelistsCalculation):
         from aiida.orm import BandsData, ProjectionData
         super().define(spec)
         spec.input('parent_folder', valid_type=(orm.RemoteData, orm.FolderData), help='The output folder of a pw.x calculation')
+        spec.input('kpoints', valid_type=orm.KpointsData, help='kpoint path if do_bands=True in the parameters', required=False)
         #spec.input('wann_occ_hr', valid_type=SingleFileData, help='wann_occ_hr', required=False)
         #spec.input('wann_emp_hr', valid_type=SingleFileData, help='wann_emp_hr', required=False)
         spec.input('wann_u_mat', valid_type=SingleFileData, help='wann_occ_u', required=False)
@@ -81,5 +82,93 @@ class KcwCalculation(NamelistsCalculation):
                 wannier_singelfiledata = getattr(self.inputs, wann_file)
                 calcinfo.local_copy_list.append((wannier_singelfiledata.uuid, wannier_singelfiledata.filename, wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
 
-
+        if hasattr(self.inputs,"kpoints"):
+            kpoints_card = prepare_kpoints_card(self.inputs.kpoints)
+            with folder.open(self.metadata.options.input_filename, 'a+') as handle:
+                handle.write(kpoints_card)
+                
         return calcinfo
+    
+def prepare_kpoints_card(kpoints=None):
+    # from the BasePwCpInputGenerator, I had to move it here as we cannot just inherit
+    from aiida.common import exceptions
+    # ============ I prepare the k-points =============
+    kpoints_card = ''
+
+    if kpoints:
+        try:
+            mesh, offset = kpoints.get_kpoints_mesh()
+            has_mesh = True
+            """force_kpoints_list = settings.pop('FORCE_KPOINTS_LIST', False)
+            if force_kpoints_list:
+                kpoints_list = kpoints.get_kpoints_mesh(print_list=True)
+                num_kpoints = len(kpoints_list)
+                has_mesh = False
+                weights = [1.] * num_kpoints
+            """
+
+        except AttributeError as exception:
+
+            try:
+                kpoints_list = kpoints.get_kpoints()
+                num_kpoints = len(kpoints_list)
+                has_mesh = False
+                if num_kpoints == 0:
+                    raise exceptions.InputValidationError(
+                        'At least one k point must be provided for non-gamma calculations'
+                    ) from exception
+            except AttributeError:
+                raise exceptions.InputValidationError('No valid kpoints have been found') from exception
+
+            try:
+                _, weights = kpoints.get_kpoints(also_weights=True)
+            except AttributeError:
+                weights = [1.] * num_kpoints
+
+        gamma_only = False # settings.pop('GAMMA_ONLY', False)
+
+        if gamma_only:
+            if has_mesh:
+                if tuple(mesh) != (1, 1, 1) or tuple(offset) != (0., 0., 0.):
+                    raise exceptions.InputValidationError(
+                        'If a gamma_only calculation is requested, the '
+                        'kpoint mesh must be (1,1,1),offset=(0.,0.,0.)'
+                    )
+
+            else:
+                if (len(kpoints_list) != 1 or tuple(kpoints_list[0]) != tuple(0., 0., 0.)):
+                    raise exceptions.InputValidationError(
+                        'If a gamma_only calculation is requested, the '
+                        'kpoints coordinates must only be (0.,0.,0.)'
+                    )
+
+            kpoints_type = 'gamma'
+
+        elif has_mesh:
+            kpoints_type = 'automatic'
+
+        else:
+            kpoints_type = 'crystal'
+
+        kpoints_card_list = [f'K_POINTS {kpoints_type}\n']
+
+        if kpoints_type == 'automatic':
+            if any(i not in [0, 0.5] for i in offset):
+                raise exceptions.InputValidationError('offset list must only be made of 0 or 0.5 floats')
+            the_offset = [0 if i == 0. else 1 for i in offset]
+            the_6_integers = list(mesh) + the_offset
+            kpoints_card_list.append('{:d} {:d} {:d} {:d} {:d} {:d}\n'.format(*the_6_integers))  # pylint: disable=consider-using-f-string
+
+        elif kpoints_type == 'gamma':
+            # nothing to be written in this case
+            pass
+        else:
+            kpoints_card_list.append(f'{num_kpoints:d}\n')
+            for kpoint, weight in zip(kpoints_list, weights):
+                kpoints_card_list.append(
+                    f'  {kpoint[0]:18.10f} {kpoint[1]:18.10f} {kpoint[2]:18.10f} {weight:18.10f}\n'
+                )
+
+        kpoints_card = ''.join(kpoints_card_list)
+        del kpoints_card_list
+        return kpoints_card

@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
+import pathlib
+import tempfile
+from ase import io
 
 from aiida.orm import Dict
 
@@ -27,6 +30,23 @@ class KcwParser(BaseParser):
         base_exit_code = self.check_base_errors(logs)
         if base_exit_code:
             return self.exit(base_exit_code, logs)
+        
+        # Create temporary directory. However, see aiida-wannier90-workflows/src/aiida_wannier90_workflows/utils/workflows/pw.py for more advanced and smart ways.
+        retrieved = self.retrieved
+        with tempfile.TemporaryDirectory() as dirpath:
+            # Open the output file from the AiiDA storage and copy content to the temporary file
+            for filename in retrieved.base.repository.list_object_names():
+                if '.out' in filename:
+                    # Create the file with the desired name
+                    readable_filename = "kc.kho"
+                    temp_file = pathlib.Path(dirpath) / readable_filename
+                    with retrieved.open(filename, 'rb') as handle:
+                        temp_file.write_bytes(handle.read())
+                
+                    output = io.read(temp_file)
+                    
+        if "eigenvalues" in output.calc.results.keys():
+            parsed_data["eigenvalues"] = output.calc.results["eigenvalues"]
 
         self.out('output_parameters', Dict(parsed_data))
 
