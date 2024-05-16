@@ -435,7 +435,7 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     codes = {
         "pw": aiida_inputs["pw_code"],
         "pw2wannier90": aiida_inputs["pw2wannier90_code"],
-        "projwfc": aiida_inputs["projwfc_code"],
+        #"projwfc": aiida_inputs["projwfc_code"],
         "wannier90": aiida_inputs["wannier90_code"],
     }
 

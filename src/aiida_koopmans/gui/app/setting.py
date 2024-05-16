@@ -68,11 +68,11 @@ class Setting(Panel):
             uploaded_filename = next(iter(self.upload_widget.value))
         content = self.upload_widget.value[uploaded_filename]['content']
         self.input_dictionary = json.loads(content.decode('utf-8'))  # Decode content and parse JSON
+        """
         print("Uploaded JSON content:")
         print(self.input_dictionary)
-                
+        """        
 
-        
     def get_panel_value(self):
         """Return a dictionary with the input parameters for the plugin."""
         return {
