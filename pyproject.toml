@@ -49,7 +49,7 @@ docs = [
     "markupsafe<2.1",
     "aiida-quantumespresso~=4.6.0",
     "aiida-wannier90-workflows @ git+https://github.com/aiidateam/aiida-wannier90-workflows",
-    "koopmans @ git+https://github.com/mikibonacci/koopmans@feature/ase-to-pw
+    "koopmans @ git+https://github.com/mikibonacci/koopmans@feature/ase-to-pw"
 ]
 
 # todo: Refine entry points here rather than just `koopmans`
