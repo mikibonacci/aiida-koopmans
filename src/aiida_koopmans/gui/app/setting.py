@@ -23,15 +23,65 @@ class Setting(Panel):
         target="_blank">aiida-koopmans</b></a> plugin, co-developed by Miki Bonacci, Julian Geiger and Edward Linscott (Paul Scherrer Institut, Switzerland). 
         <br>
         <br>
-        For now, we allow one way to provide Koopmans settings, i.e. through the upload button below. You should pass 
-        the same file that is needed to run a standard Koopmans@AiiDA simulation, i.e. the codes should be set there, 
-        and not in step 3 of the app (this is just a temporary limitation). 
+        For now, we allow two ways to provide Koopmans settings:
+        <br>
+        (1) setting the following options
+        <br>
+        (2) through  the upload button below. 
+        <br>
+        For option (2), you should pass the same file that is needed to run a standard Koopmans simulation.
         <br>
         <br>
-        Only DFPT workflow is available.
-            
+        Only "DFPT" method and "KI" functional are currently available. Norm-conserving pseudopotentials must be used.
             </div>""",
             layout=ipw.Layout(width="400"),
+        )
+        
+        # Method button
+        self.method = ipw.RadioButtons(
+            options=['DFPT','deltaSCF'],
+            value='DFPT',
+        )
+        method_box = ipw.VBox(
+            children = [ipw.HTML('Method'),self.method]
+        )
+        
+        # Functional button
+        self.functional = ipw.RadioButtons(
+            options=['ki','kipz'],
+            value='ki',
+        )
+        functional_box = ipw.VBox(
+            children = [ipw.HTML('Functional'),self.functional]
+        )
+        
+        # Init orbitals dropdown
+        self.init_orbitals_dropdown = ipw.Dropdown(
+                    options=['mlwfs','kohn-sham'],
+                    #layout=ipw.Layout(width="200px"),
+                    value='mlwfs',
+                )
+        init_orbitals_box = ipw.VBox(
+            children = [ipw.HTML('Initial orbitals'),self.init_orbitals_dropdown]
+        )
+
+        # Compute alpha checkbox
+        self.compute_alpha = ipw.Checkbox(
+            description='compute screening alpha (or provide it in the json file)',
+            layout={'width':'2000px'},
+        )
+        compute_alpha_box = ipw.VBox(
+            children = [self.compute_alpha]
+        )
+        
+        # Full box of the above Koopmans inputs.
+        mandatory_inputs_box = ipw.HBox(
+            children=[
+                method_box,
+                functional_box,
+                init_orbitals_box,
+                compute_alpha_box,
+            ],
         )
         
         # Upload buttons
@@ -50,10 +100,26 @@ class Setting(Panel):
             layout=ipw.Layout(width="auto"),
         )
         self.reset_uploads.observe(self._on_reset_uploads_button_clicked, "value")
+        upload_widget_box = ipw.HBox(
+            children=[
+                self.upload_widget,
+                self.reset_uploads
+                ]
+            )
         
         self.children = [
             self.settings_help,
-            ipw.HBox(children=[self.upload_widget,self.reset_uploads]),
+             ipw.VBox(
+        children=[
+           mandatory_inputs_box,
+           ipw.HTML("""
+                         <b>Upload your Koopmans json file to define/override inputs:</b>
+                         it is also possible to upload a specific json file with all (or part) of the needed settings.
+                         These will override the current options and, if there, also parameters of the simulations to be submitted.
+                """),
+           upload_widget_box,
+                ],
+            ) 
         ]
         super().__init__(**kwargs)
         
