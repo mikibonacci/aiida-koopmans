@@ -12,8 +12,6 @@ import shutil
 import tempfile
 
 import numpy as np
-
-
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
 from aiida_quantumespresso.calculations.pw import PwCalculation
@@ -199,9 +197,6 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
 
     control_dict["calculation"] = "wann2kcw"
 
-    if not any(wann2kc_calculator.atoms.pbc):
-        control_dict["assume_isolated"] = "m-t"
-
     for k in list(control_dict):
         if control_dict[k] is None:
             control_dict.pop(k)
@@ -268,9 +263,6 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     }
     control_dict["calculation"] = "ham"
 
-    if not any(kcw_calculator.atoms.pbc):
-        control_dict["assume_isolated"] = "m-t"
-
     for k in list(control_dict):
         if control_dict[k] is None:
             control_dict.pop(k)
@@ -297,7 +289,10 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
             ham_dict.pop(k)
     
     # for now always true as we skip the smooth interpolation procedure.    
-    ham_dict["do_bands"] = True
+    if not any(kcw_calculator.atoms.pbc):
+        ham_dict["do_bands"] = False
+    else:
+        ham_dict["do_bands"] = True
 
     kcw_ham_params = {
         "CONTROL": control_dict,
@@ -358,9 +353,6 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     for k in list(control_dict):
         if control_dict[k] is None:
             control_dict.pop(k)
-
-    if not any(kcw_calculator.atoms.pbc):
-        control_dict["assume_isolated"] = "m-t"
 
     wannier_dict = {
         k: v if k in kcs_wannier_namelist else None
