@@ -9,13 +9,17 @@ available in the PATH on almost any UNIX system.
 """
 
 import shutil
+import pathlib
 import tempfile
 
 import numpy as np
+import functools
+
 from aiida.common.exceptions import NotExistent
 from aiida.orm import Code, Computer
 from aiida_quantumespresso.calculations.pw import PwCalculation
 from aiida_wannier90.calculations.wannier90 import Wannier90Calculation
+from ase import io
 from ase.io.espresso import kch_keys, kcp_keys, kcs_keys, pw_keys, w2kcw_keys
 
 from aiida_koopmans.calculations.kcw import KcwCalculation
@@ -108,6 +112,29 @@ def get_code(entry_point, computer):
     code.label = executable
     return code.store()
 
+# read the output file, mimicking the read_results method of ase-koopmans: https://github.com/elinscott/ase_koopmans/blob/master/ase/calculators/espresso/_espresso.py
+def read_output_file(calculator, inner_remote_folder=None):
+    """
+    Read the output file of a calculator using ASE io.read() method but parsing the AiiDA outputs. 
+    NB: calculator (ASE) should contain the related AiiDA workchain as attribute.
+    """
+    if inner_remote_folder:
+        retrieved = inner_remote_folder
+    else:
+        retrieved = calculator.wchain.outputs.retrieved
+    with tempfile.TemporaryDirectory() as dirpath:
+        # Open the output file from the AiiDA storage and copy content to the temporary file
+        for filename in retrieved.base.repository.list_object_names():
+            if '.out' in filename or '.wout' in filename:
+                # Create the file with the desired name
+                readable_filename = calculator.label.split("/")[-1]+calculator.ext_out
+                temp_file = pathlib.Path(dirpath) / readable_filename
+                with retrieved.open(filename, 'rb') as handle:
+                    temp_file.write_bytes(handle.read())
+                output = io.read(temp_file)
+    return output
+
+# Pw calculator.
 def get_builder_from_ase(pw_calculator):
     from aiida import load_profile, orm
     from aiida_quantumespresso.common.types import ElectronicType
@@ -119,7 +146,7 @@ def get_builder_from_ase(pw_calculator):
     We should check automatically on the accepted keywords in PwCalculation and where are. Should be possible.
     we suppose that the calculator has an attribute called mode e.g.
 
-    pw_calculator.mode = {
+    pw_calculator.parameters.mode = {
         "pw_code": "pw-7.2-ok@localhost",
         "metadata": {
         "options": {
@@ -134,7 +161,7 @@ def get_builder_from_ase(pw_calculator):
     }
     }
     """
-    aiida_inputs = pw_calculator.mode
+    aiida_inputs = pw_calculator.parameters.mode
     calc_params = pw_calculator._parameters
     structure = orm.StructureData(ase=pw_calculator.atoms)
 
@@ -218,10 +245,10 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
     }
 
     builder.parameters = orm.Dict(wann2kcw_params)
-    builder.code = orm.load_code(wann2kc_calculator.mode["kcw_code"])
-    builder.metadata = wann2kc_calculator.mode["metadata"]
-    if "metadata_kcw" in wann2kc_calculator.mode:
-        builder.metadata = wann2kc_calculator.mode["metadata_kcw"]
+    builder.code = orm.load_code(wann2kc_calculator.parameters.mode["kcw_code"])
+    builder.metadata = wann2kc_calculator.parameters.mode["metadata"]
+    if "metadata_kcw" in wann2kc_calculator.parameters.mode:
+        builder.metadata = wann2kc_calculator.parameters.mode["metadata_kcw"]
     builder.parent_folder = wann2kc_calculator.parent_folder
 
     if hasattr(wann2kc_calculator, "wannier90_files"):
@@ -400,7 +427,7 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     
     return builder
 
-def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calculator):
+def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
     # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator.
     # in this way we have everything we need for each different block of the wannierization step.
 
@@ -421,8 +448,8 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
     load_profile()
 
-    nscf = wannierize_workflow.dft_wchains["nscf"]
-    aiida_inputs = wannierize_workflow.parameters.mode
+    nscf = w90_calculator.parent_folder.creator.caller # PwBaseWorkChain
+    aiida_inputs = w90_calculator.parameters.mode
 
     codes = {
         "pw": aiida_inputs["pw_code"],
@@ -448,9 +475,9 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
     # set kpath using the WannierizeWFL data.
     k_coords = []
     k_labels = []
-    k_path=wannierize_workflow.kpoints.path.kpts
-    special_k = wannierize_workflow.kpoints.path.todict()["special_points"]
-    k_linear,special_k_coords,special_k_labels = wannierize_workflow.kpoints.path.get_linear_kpoint_axis()
+    k_path=w90_calculator.parameters.kpoint_path.kpts
+    special_k = w90_calculator.parameters.kpoint_path.todict()["special_points"]
+    k_linear,special_k_coords,special_k_labels = w90_calculator.parameters.kpoint_path.get_linear_kpoint_axis()
     t=0
     for coords,label in list(zip(special_k_coords,special_k_labels)):
         t = np.where(k_linear==coords)[0]
@@ -528,3 +555,75 @@ def get_wannier90bandsworkchain_builder_from_ase(wannierize_workflow, w90_calcul
 
 
     return builder
+
+# Decorators.
+
+## Here we have the mapping for the calculators initialization. used in the `aiida_calculate_trigger`.
+mapping_calculators = {
+    ".pwo" : get_builder_from_ase,
+    ".wout": get_wannier90bandsworkchain_builder_from_ase,
+    ".w2ko": from_wann2kc_to_KcwCalculation,
+}
+
+## Calculate step
+def aiida_pre_calculate_trigger(_pre_calculate):
+    # This wraps the _pre_calculate method. 
+    @functools.wraps(_pre_calculate)
+    def wrapper_aiida_trigger(self):
+        if self.parameters.mode == "ase":
+            return self._pre_calculate()
+        else:
+            pass
+    return wrapper_aiida_trigger
+
+def aiida_calculate_trigger(_calculate):
+    # This wraps the _calculate method. submits AiiDA if we are not in the "ase" mode, otherwise it behaves like in the standard Koopmans run.
+    @functools.wraps(_calculate)
+    def wrapper_aiida_trigger(self):
+        if self.parameters.mode == "ase":
+            return self._calculate()
+        else:
+            builder = mapping_calculators[self.ext_out](self)
+            from aiida.engine import run_get_node, submit
+            #running = run_get_node(builder)
+            running = submit(builder)
+            self.wchain = running # running[-1] if run_and_get_node
+    return wrapper_aiida_trigger
+
+def aiida_post_calculate_trigger(_post_calculate):
+    # This wraps the _post_calculate method. 
+    @functools.wraps(_post_calculate)
+    def wrapper_aiida_trigger(self):
+        if self.parameters.mode == "ase":
+            return self._post_calculate()
+        else:
+            pass
+    return wrapper_aiida_trigger
+
+# Read results.
+def aiida_read_results_trigger(read_results):
+    # This wraps the read_results method. 
+    @functools.wraps(read_results)
+    def wrapper_aiida_trigger(self):
+        if self.parameters.mode == "ase":
+            return self.read_results()
+        else:
+            if self.ext_out == ".wout":
+                output = read_output_file(self, self.wchain.outputs.wannier90.retrieved)
+            elif self.ext_out == ".pwo":
+                output = read_output_file(self)
+                self.calc = output.calc
+                self.results = output.calc.results
+                if hasattr(output.calc, 'kpts'):
+                    self.kpts = output.calc.kpts
+    return wrapper_aiida_trigger
+
+def aiida_link_trigger(link):
+    # This wraps the link method of Workflow class. 
+    @functools.wraps(link)
+    def wrapper_aiida_trigger(self,src_calc, src_path, dest_calc, dest_path):
+        if self.parameters.mode == "ase":
+            return self.link(src_calc, src_path, dest_src, dest_path)
+        elif src_calc: # if pseudo linking, src_calc = None
+                dest_calc.parent_folder = src_calc.wchain.outputs.remote_folder
+    return wrapper_aiida_trigger
