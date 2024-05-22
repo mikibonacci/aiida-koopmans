@@ -623,7 +623,7 @@ def aiida_link_trigger(link):
     @functools.wraps(link)
     def wrapper_aiida_trigger(self,src_calc, src_path, dest_calc, dest_path):
         if self.parameters.mode == "ase":
-            return self.link(src_calc, src_path, dest_src, dest_path)
+            return self.link(src_calc, src_path, dest_calc, dest_path)
         elif src_calc: # if pseudo linking, src_calc = None
                 dest_calc.parent_folder = src_calc.wchain.outputs.remote_folder
     return wrapper_aiida_trigger
