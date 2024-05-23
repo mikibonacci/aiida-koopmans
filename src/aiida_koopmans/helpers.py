@@ -531,9 +531,12 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
     for proj in w90_calculator.todict()['_parameters']["projections"]:
         # for now we support only the following conversion:
         # proj={'fsite': [0.0, 0.0, 0.0], 'ang_mtm': 'sp3'} ==> converted_proj="f=0.0,0.0,0.0:sp3"
-        position = str(proj["fsite"]).replace("[","").replace("]","").replace(" ","")
+        if "fsite" in proj.keys():
+            position = "f="+str(proj["fsite"]).replace("[","").replace("]","").replace(" ","")
+        elif "site" in proj.keys():
+            position = str(proj["site"])
         orbital = proj["ang_mtm"]
-        converted_proj = "f="+position+":"+orbital
+        converted_proj = position+":"+orbital
         converted_projs.append(converted_proj)
 
     builder.wannier90.wannier90.projections = orm.List(list=converted_projs)
