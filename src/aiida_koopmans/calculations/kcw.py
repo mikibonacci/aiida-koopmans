@@ -45,6 +45,8 @@ class KcwCalculation(NamelistsCalculation):
         spec.input('kpoints', valid_type=orm.KpointsData, help='kpoint path if do_bands=True in the parameters', required=False)
         #spec.input('wann_occ_hr', valid_type=SingleFileData, help='wann_occ_hr', required=False)
         #spec.input('wann_emp_hr', valid_type=SingleFileData, help='wann_emp_hr', required=False)
+        spec.input('alpha_occ', valid_type=SingleFileData, help='alpha_occ', required=False)
+        spec.input('alpha_emp', valid_type=SingleFileData, help='alpha_emp', required=False)
         spec.input('wann_u_mat', valid_type=SingleFileData, help='wann_occ_u', required=False)
         spec.input('wann_emp_u_mat', valid_type=SingleFileData, help='wann_emp_u', required=False)
         spec.input('wann_emp_u_dis_mat', valid_type=SingleFileData, help='wann_dis_u', required=False)
@@ -81,6 +83,13 @@ class KcwCalculation(NamelistsCalculation):
             if hasattr(self.inputs,wann_file):
                 wannier_singelfiledata = getattr(self.inputs, wann_file)
                 calcinfo.local_copy_list.append((wannier_singelfiledata.uuid, wannier_singelfiledata.filename, wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
+
+        for alpha_file in ['alpha_occ','alpha_emp']:
+            if hasattr(self.inputs,alpha_file):
+                suffix = alpha_file.replace("alpha_occ","").replace("alpha_emp","_empty")
+                alpha_singelfiledata = getattr(self.inputs, alpha_file)
+                calcinfo.local_copy_list.append((alpha_singelfiledata.uuid, alpha_singelfiledata.filename,f'file_alpharef{suffix}.txt'))
+
 
         if hasattr(self.inputs,"kpoints"):
             kpoints_card = prepare_kpoints_card(self.inputs.kpoints)

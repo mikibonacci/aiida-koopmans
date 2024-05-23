@@ -47,6 +47,9 @@ class KcwParser(BaseParser):
                     
         if "eigenvalues" in output.calc.results.keys():
             parsed_data["eigenvalues"] = output.calc.results["eigenvalues"]
+            
+        if "alphas" in output.calc.results.keys():
+            parsed_data["alphas"] = output.calc.results["alphas"]
 
         self.out('output_parameters', Dict(parsed_data))
 

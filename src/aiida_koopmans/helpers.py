@@ -23,6 +23,7 @@ from ase import io
 from ase.io.espresso import kch_keys, kcp_keys, kcs_keys, pw_keys, w2kcw_keys
 
 from aiida_koopmans.calculations.kcw import KcwCalculation
+from aiida_koopmans.data.utils import generate_singlefiledata, generate_alpha_singlefiledata
 
 """
 ASE calculator MUST have `wchain` attribute (the related AiiDA WorkChain) to be able to use these functions!
@@ -138,6 +139,22 @@ def read_output_file(calculator, inner_remote_folder=None):
                 output = io.read(temp_file)
     return output
 
+def get_output_content(calculator, filename, mode="r", inner_remote_folder=None):
+    """
+    This is needed for parsing AiiDA stored files for further manipulation. E.g., merge wannier files.
+    NB: calculator (ASE) should contain the related AiiDA workchain as attribute.
+    """
+    if inner_remote_folder:
+        retrieved = inner_remote_folder
+    else:
+        retrieved = calculator.wchain.outputs.retrieved
+    content = retrieved.get_object_content(filename,mode=mode)
+    if mode=="rb": return content
+    content = content.split("\n")
+    for line in range(len(content)):
+        content[line] += "\n"
+    return content[:-1] # this is the analogous of the file.readlines()
+    
 # Pw calculator.
 def get_builder_from_ase(pw_calculator):
     from aiida import load_profile, orm
@@ -255,16 +272,16 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
         builder.metadata = wann2kc_calculator.parameters.mode["metadata_kcw"]
     builder.parent_folder = wann2kc_calculator.parent_folder
 
-    if hasattr(wann2kc_calculator, "wannier90_files"):
-        builder.wann_u_mat = wann2kc_calculator.wannier90_files["occ"]["u_mat"]
-        builder.wann_emp_u_mat = wann2kc_calculator.wannier90_files["emp"]["u_mat"]
-        builder.wann_emp_u_dis_mat = wann2kc_calculator.wannier90_files["emp"][
+    if hasattr(wann2kc_calculator, "w90_files"):
+        builder.wann_u_mat = wann2kc_calculator.w90_files["occ"]["u_mat"]
+        builder.wann_emp_u_mat = wann2kc_calculator.w90_files["emp"]["u_mat"]
+        builder.wann_emp_u_dis_mat = wann2kc_calculator.w90_files["emp"][
             "u_dis_mat"
         ]
-        builder.wann_centres_xyz = wann2kc_calculator.wannier90_files["occ"][
+        builder.wann_centres_xyz = wann2kc_calculator.w90_files["occ"][
             "centres_xyz"
         ]
-        builder.wann_emp_centres_xyz = wann2kc_calculator.wannier90_files["emp"][
+        builder.wann_emp_centres_xyz = wann2kc_calculator.w90_files["emp"][
             "centres_xyz"
         ]
 
@@ -332,20 +349,20 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     }
 
     builder.parameters = orm.Dict(kcw_ham_params)
-    builder.code = orm.load_code(kcw_calculator.mode["kcw_code"])
-    builder.metadata = kcw_calculator.mode["metadata"]
-    if "metadata_kcw" in kcw_calculator.mode:
-        builder.metadata = kcw_calculator.mode["metadata_kcw"]
+    builder.code = orm.load_code(kcw_calculator.parameters.mode["kcw_code"])
+    builder.metadata = kcw_calculator.parameters.mode["metadata"]
+    if "metadata_kcw" in kcw_calculator.parameters.mode:
+        builder.metadata = kcw_calculator.parameters.mode["metadata_kcw"]
     builder.parent_folder = kcw_calculator.parent_folder
 
-    if hasattr(kcw_calculator, "wannier90_files") and control_dict.get(
+    if hasattr(kcw_calculator, "w90_files") and control_dict.get(
         "read_unitary_matrix", False
     ):
-        builder.wann_u_mat = kcw_calculator.wannier90_files["occ"]["u_mat"]
-        builder.wann_emp_u_mat = kcw_calculator.wannier90_files["emp"]["u_mat"]
-        builder.wann_emp_u_dis_mat = kcw_calculator.wannier90_files["emp"]["u_dis_mat"]
-        builder.wann_centres_xyz = kcw_calculator.wannier90_files["occ"]["centres_xyz"]
-        builder.wann_emp_centres_xyz = kcw_calculator.wannier90_files["emp"][
+        builder.wann_u_mat = kcw_calculator.w90_files["occ"]["u_mat"]
+        builder.wann_emp_u_mat = kcw_calculator.w90_files["emp"]["u_mat"]
+        builder.wann_emp_u_dis_mat = kcw_calculator.w90_files["emp"]["u_dis_mat"]
+        builder.wann_centres_xyz = kcw_calculator.w90_files["occ"]["centres_xyz"]
+        builder.wann_emp_centres_xyz = kcw_calculator.w90_files["emp"][
             "centres_xyz"
         ]
         
@@ -354,6 +371,10 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
         kpoints = orm.KpointsData()
         kpoints.set_kpoints(kcw_calculator.kpoints)
         builder.kpoints = kpoints
+        
+    if hasattr(kcw_calculator, "alphas_files"):
+        builder.alpha_occ = kcw_calculator.alphas_files["alpha"]
+        builder.alpha_emp = kcw_calculator.alphas_files["alpha_empty"]
     
     return builder
 
@@ -412,20 +433,20 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     }
 
     builder.parameters = orm.Dict(kcw_screen_params)
-    builder.code = orm.load_code(kcw_calculator.mode["kcw_code"])
-    builder.metadata = kcw_calculator.mode["metadata"]
-    if "metadata_kcw" in kcw_calculator.mode:
-        builder.metadata = kcw_calculator.mode["metadata_kcw"]
+    builder.code = orm.load_code(kcw_calculator.parameters.mode["kcw_code"])
+    builder.metadata = kcw_calculator.parameters.mode["metadata"]
+    if "metadata_kcw" in kcw_calculator.parameters.mode:
+        builder.metadata = kcw_calculator.parameters.mode["metadata_kcw"]
     builder.parent_folder = kcw_calculator.parent_folder
 
-    if hasattr(kcw_calculator, "wannier90_files") and control_dict.get(
+    if hasattr(kcw_calculator, "w90_files") and control_dict.get(
         "read_unitary_matrix", False
     ):
-        builder.wann_u_mat = kcw_calculator.wannier90_files["occ"]["u_mat"]
-        builder.wann_emp_u_mat = kcw_calculator.wannier90_files["emp"]["u_mat"]
-        builder.wann_emp_u_dis_mat = kcw_calculator.wannier90_files["emp"]["u_dis_mat"]
-        builder.wann_centres_xyz = kcw_calculator.wannier90_files["occ"]["centres_xyz"]
-        builder.wann_emp_centres_xyz = kcw_calculator.wannier90_files["emp"][
+        builder.wann_u_mat = kcw_calculator.w90_files["occ"]["u_mat"]
+        builder.wann_emp_u_mat = kcw_calculator.w90_files["emp"]["u_mat"]
+        builder.wann_emp_u_dis_mat = kcw_calculator.w90_files["emp"]["u_dis_mat"]
+        builder.wann_centres_xyz = kcw_calculator.w90_files["occ"]["centres_xyz"]
+        builder.wann_emp_centres_xyz = kcw_calculator.w90_files["emp"][
             "centres_xyz"
         ]
     
@@ -468,6 +489,7 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
             pseudo_family="PseudoDojo/0.4/PBE/FR/standard/upf",
             protocol="fast",
             projection_type=WannierProjectionType.ANALYTIC,
+            print_summary=False,
         )
 
     # Use nscf explicit kpoints
@@ -567,6 +589,8 @@ mapping_calculators = {
     ".pwo" : get_builder_from_ase,
     ".wout": get_wannier90bandsworkchain_builder_from_ase,
     ".w2ko": from_wann2kc_to_KcwCalculation,
+    ".kso": from_kcwscreen_to_KcwCalculation,
+    ".kho": from_kcwham_to_KcwCalculation,
 }
 
 ## Calculate step
@@ -612,18 +636,22 @@ def aiida_read_results_trigger(read_results):
         if self.parameters.mode == "ase":
             return read_results(self,)
         else:
+            output = None
             if self.ext_out == ".wout":
                 output = read_output_file(self, self.wchain.outputs.wannier90.retrieved)
-            elif self.ext_out == ".pwo":
+            elif self.ext_out in [".pwo",".kho"]:
                 output = read_output_file(self)
                 if hasattr(output.calc, 'kpts'):
                     self.kpts = output.calc.kpts
-            
-            self.calc = output.calc
-            self.results = output.calc.results
+            else:
+                output = read_output_file(self)
+            if self.ext_out in [".pwo",".wout",".kso",".kho"]:
+                self.calc = output.calc
+                self.results = output.calc.results
             
     return wrapper_aiida_trigger
 
+# Link calculations and results.
 def aiida_link_trigger(link):
     # This wraps the link method of Workflow class. 
     @functools.wraps(link)
@@ -632,4 +660,56 @@ def aiida_link_trigger(link):
             return link(self, src_calc, src_path, dest_calc, dest_path)
         elif src_calc: # if pseudo linking, src_calc = None
                 dest_calc.parent_folder = src_calc.wchain.outputs.remote_folder
+    return wrapper_aiida_trigger
+
+# get files to manipulate further.
+def aiida_get_content_trigger(get_content):
+    # This wraps the get_content method of _merge_wannier.py (see Koopmans package)
+    @functools.wraps(get_content)
+    def wrapper_aiida_trigger(calc, relpath):
+        if calc.parameters.mode == "ase":
+            return get_content(calc, relpath)
+        elif hasattr(calc,"wchain"): 
+            if calc.ext_out == ".wout":
+                inner_remote_folder=calc.wchain.outputs.wannier90.retrieved
+            else:
+                inner_remote_folder=None
+            filename = "aiida"+calc.ext_out
+            return get_output_content(
+                calc, filename, 
+                mode="r", 
+                inner_remote_folder=inner_remote_folder)
+    return wrapper_aiida_trigger
+
+# Write file to singlefiledata.
+def aiida_write_content_trigger(write_content):
+    # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
+    @functools.wraps(write_content)
+    def wrapper_aiida_trigger(dst_file, merged_filecontents):
+        if calc.parameters.mode == "ase":
+            return get_content(dst_file, merged_filecontents)
+        elif hasattr(calc,"wchain"): 
+            return generate_singlefiledata(dst_file, merged_filecontents)
+    return wrapper_aiida_trigger
+
+# Specific for dfpt run_calculator definition.
+def aiida_dfpt_run_calculator(run_calculator):
+    # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
+    @functools.wraps(run_calculator)
+    def wrapper_aiida_trigger(self, calc):
+        if calc.parameters.mode == "ase":
+            return run_calculator(calc)
+        elif hasattr(calc,"wchain"): 
+            return self.run_calculators([calc])
+    return wrapper_aiida_trigger
+
+# generating the alphas file
+def aiida_write_alphas_trigger(write_alphas):
+    # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
+    @functools.wraps(write_alphas)
+    def wrapper_aiida_trigger(self):
+        if self.parameters.mode == "ase":
+            return write_alphas()
+        else:
+            return generate_alpha_singlefiledata(self,)
     return wrapper_aiida_trigger
