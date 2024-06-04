@@ -208,7 +208,7 @@ def get_builder_from_ase(pw_calculator):
         code=aiida_inputs["pw_code"],
         structure=structure,
         overrides={
-            "pseudo_family": "PseudoDojo/0.4/PBE/SR/standard/upf",
+            "pseudo_family": "PseudoDojo/0.4/LDA/SR/standard/upf",
             "pw": {"parameters": pw_overrides},
         },
         electronic_type=ElectronicType.INSULATOR,
@@ -273,7 +273,6 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
     builder.parent_folder = wann2kc_calculator.parent_folder
 
     if hasattr(wann2kc_calculator, "w90_files"):
-        builder.wann_u_mat = wann2kc_calculator.w90_files["occ"]["u_mat"]
         builder.wann_emp_u_mat = wann2kc_calculator.w90_files["emp"]["u_mat"]
         builder.wann_emp_u_dis_mat = wann2kc_calculator.w90_files["emp"][
             "u_dis_mat"
@@ -486,7 +485,7 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
     builder = Wannier90BandsWorkChain.get_builder_from_protocol(
             codes=codes,
             structure=nscf.inputs.pw.structure,
-            pseudo_family="PseudoDojo/0.4/PBE/FR/standard/upf",
+            pseudo_family="PseudoDojo/0.4/LDA/SR/standard/upf",
             protocol="fast",
             projection_type=WannierProjectionType.ANALYTIC,
             print_summary=False,
@@ -597,14 +596,14 @@ mapping_calculators = {
 }
 
 ## Calculate step
-def aiida_pre_calculate_trigger(_pre_calculate):
-    # This wraps the _pre_calculate method. 
-    @functools.wraps(_pre_calculate)
+def aiida_check_code_is_installed_trigger(check_code_is_installed):
+    # This wraps the check_code_is_installed method. 
+    @functools.wraps(check_code_is_installed)
     def wrapper_aiida_trigger(self):
         if self.parameters.mode == "ase":
-            return _pre_calculate(self,)
+            return check_code_is_installed(self,)
         else:
-            pass
+            return
     return wrapper_aiida_trigger
 
 def aiida_calculate_trigger(_calculate):
@@ -655,14 +654,19 @@ def aiida_read_results_trigger(read_results):
     return wrapper_aiida_trigger
 
 # Link calculations and results.
-def aiida_link_trigger(link):
-    # This wraps the link method of Workflow class. 
-    @functools.wraps(link)
-    def wrapper_aiida_trigger(self,src_calc, src_path, dest_calc, dest_path):
+def aiida_fetch_linked_files_trigger(_fetch_linked_files):
+    # This wraps the _fetch_linked_files method of ASE Calculator class. 
+    @functools.wraps(_fetch_linked_files)
+    def wrapper_aiida_trigger(self):
         if self.parameters.mode == "ase":
-            return link(self, src_calc, src_path, dest_calc, dest_path)
-        elif src_calc: # if pseudo linking, src_calc = None
-                dest_calc.parent_folder = src_calc.wchain.outputs.remote_folder
+            return _fetch_linked_files(self,)
+        else: # if pseudo linking, src_calc = None
+            for dest_filename, (src_calc, src_filename) in self._linked_files.items():
+                # check the we have only one src_calc!!!
+                if hasattr(src_calc,"wchain"): 
+                    self.parent_folder = src_calc.wchain.outputs.remote_folder
+                elif hasattr(src_calc,"dst_file"):
+                    pass #linik w90_files.
     return wrapper_aiida_trigger
 
 # get files to manipulate further.
@@ -670,14 +674,16 @@ def aiida_get_content_trigger(get_content):
     # This wraps the get_content method of _merge_wannier.py (see Koopmans package)
     @functools.wraps(get_content)
     def wrapper_aiida_trigger(calc, relpath):
+
         if calc.parameters.mode == "ase":
             return get_content(calc, relpath)
         elif hasattr(calc,"wchain"): 
             if calc.ext_out == ".wout":
                 inner_remote_folder=calc.wchain.outputs.wannier90.retrieved
+                filename = relpath.name.replace("wann","aiida") # middle hard coding for wann stuff.
             else:
                 inner_remote_folder=None
-            filename = "aiida"+calc.ext_out
+                filename = "aiida"+calc.ext_out
             return get_output_content(
                 calc, filename, 
                 mode="r", 
@@ -688,16 +694,22 @@ def aiida_get_content_trigger(get_content):
 def aiida_write_content_trigger(write_content):
     # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
     @functools.wraps(write_content)
-    def wrapper_aiida_trigger(dst_file, merged_filecontents):
+    def wrapper_aiida_trigger(dst_file, merged_filecontents,actor):
+        calc = actor.inputs.src_files[0][0]
         if calc.parameters.mode == "ase":
-            return get_content(dst_file, merged_filecontents)
+            write_content(dst_file, merged_filecontents)
         elif hasattr(calc,"wchain"): 
-            return generate_singlefiledata(dst_file, merged_filecontents)
+            # hard coding for wannier. hard coding in the sense that we should provide also non wannier support
+            if calc.ext_out == ".wout":
+                if not hasattr(actor,"singlefiledata"): actor.singlefiledata = {}
+                filename = dst_file.name.split("/")[-1].replace("wann","aiida")
+                singlefiledata = generate_singlefiledata(filename, merged_filecontents)
+            return singlefiledata
     return wrapper_aiida_trigger
 
 # Specific for dfpt run_calculator definition.
-def aiida_dfpt_run_calculator(run_calculator):
-    # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
+def aiida_dfpt_run_calculator_trigger(run_calculator):
+    # This wraps the run_calculator method for dfpt run_calculator (see Koopmans package, DFTPWorkflow).
     @functools.wraps(run_calculator)
     def wrapper_aiida_trigger(self, calc):
         if calc.parameters.mode == "ase":
@@ -708,11 +720,32 @@ def aiida_dfpt_run_calculator(run_calculator):
 
 # generating the alphas file
 def aiida_write_alphas_trigger(write_alphas):
-    # This wraps the write_content method of _merge_wannier.py (see Koopmans package)
+    # This wraps the write_alphas method (see Koopmans package)
     @functools.wraps(write_alphas)
     def wrapper_aiida_trigger(self):
         if self.parameters.mode == "ase":
             return write_alphas()
         else:
             return generate_alpha_singlefiledata(self,)
+    return wrapper_aiida_trigger
+
+def aiida_merge_wannier_files_trigger(merge_wannier_files):
+    # needed to populate the self.w90_files dictionary in the wannierize workflow.
+    @functools.wraps(merge_wannier_files)
+    def wrapper_aiida_trigger(self, block, merge_directory, prefix):
+        merge_wannier_files(self,block, merge_directory, prefix)
+        if self.parameters.mode == "ase":
+            return
+        else:
+            self.w90_files[merge_directory] = {
+                'hr_dat': self.merge_hr_proc.singlefiledata,
+                }
+            del self.merge_hr_proc.singlefiledata
+            if self.parameters.method == 'dfpt':
+                self.w90_files[merge_directory].update({
+                    "u_mat": self.merge_u_proc.singlefiledata, 
+                    "centres_xyz": self.merge_centers_proc.singlefiledata,
+                    })
+                del self.merge_u_proc.singlefiledata
+                del self.merge_centers_proc.singlefiledata
     return wrapper_aiida_trigger
