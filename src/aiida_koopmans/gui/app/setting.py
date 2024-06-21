@@ -34,44 +34,64 @@ class Setting(Panel):
         <br>
         Only "DFPT" method and "KI" functional are currently available. Norm-conserving pseudopotentials must be used.
             </div>""",
-            layout=ipw.Layout(width="400"),
+            #layout=ipw.Layout(width="400"),
         )
+        
+        layout_inside_Vboxes = ipw.Layout(width="90%") # it is the default, no need to set it up actually.
+        layout_Vboxes = ipw.Layout(width="12.5%")
         
         # Method button
         self.method = ipw.RadioButtons(
             options=['DFPT','deltaSCF'],
             value='DFPT',
+            layout=layout_inside_Vboxes
         )
         method_box = ipw.VBox(
-            children = [ipw.HTML('Method'),self.method]
+            children = [ipw.HTML('Method'),self.method],
+            layout=layout_Vboxes
+            
         )
         
         # Functional button
         self.functional = ipw.RadioButtons(
             options=['ki','kipz'],
             value='ki',
+            layout=layout_inside_Vboxes
         )
         functional_box = ipw.VBox(
-            children = [ipw.HTML('Functional'),self.functional]
+            children = [ipw.HTML('Functional'),self.functional],
+            layout=layout_Vboxes
         )
         
         # Init orbitals dropdown
         self.init_orbitals_dropdown = ipw.Dropdown(
                     options=['mlwfs','kohn-sham'],
-                    #layout=ipw.Layout(width="200px"),
                     value='mlwfs',
+                    layout=layout_inside_Vboxes
                 )
         init_orbitals_box = ipw.VBox(
-            children = [ipw.HTML('Initial orbitals'),self.init_orbitals_dropdown]
+            children = [ipw.HTML('Initial orbitals'),self.init_orbitals_dropdown],
+            layout=layout_Vboxes
         )
 
         # Compute alpha checkbox
         self.compute_alpha = ipw.Checkbox(
-            description='compute screening alpha (or provide it in the json file)',
-            layout={'width':'2000px'},
+            indent=False,
+            layout=ipw.Layout(flex='0 1 auto', width="10%"),
         )
         compute_alpha_box = ipw.VBox(
-            children = [self.compute_alpha]
+            children = [ipw.HBox([
+                ipw.HTML("""<div style="line-height: 140%; padding-top: 0px; padding-bottom: 5px">
+                         Compute screening alpha <br>
+                        (or provide it in the json file)
+                        </div>
+                        """,
+                        layout=ipw.Layout(flex='0 1 auto', width="28%")),
+                self.compute_alpha,
+                ],),
+                
+                ],
+            layout=ipw.Layout(display='flex', flex_flow='column', align_items='stretch', width='62.5%')
         )
         
         # Full box of the above Koopmans inputs.
@@ -112,10 +132,11 @@ class Setting(Panel):
              ipw.VBox(
         children=[
            mandatory_inputs_box,
-           ipw.HTML("""
+           ipw.HTML("""<div style="line-height: 140%; padding-top: 0px; padding-bottom: 5px">
                          <b>Upload your Koopmans json file to define/override inputs:</b>
                          it is also possible to upload a specific json file with all (or part) of the needed settings.
                          These will override the current options and, if there, also parameters of the simulations to be submitted.
+                        </div>                        
                 """),
            upload_widget_box,
                 ],
