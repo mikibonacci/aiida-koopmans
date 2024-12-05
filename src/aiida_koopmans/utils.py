@@ -286,7 +286,7 @@ def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
                 step_data["steps"][parent_calculators[0]]["remote_folder"]
             )
 
-    return builder
+    return builder, step_data
 
 
 ## Here we have the mapping for the calculators initialization. used in the `aiida_calculate_trigger`.
