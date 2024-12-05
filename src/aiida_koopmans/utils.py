@@ -65,7 +65,7 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
             pw_overrides["CONTROL"][k] = calc_params[k]
 
     for k in pw_keys['system']:
-        if k in calc_params.keys() and k not in [ALL_BLOCKED_KEYWORDS, 'tot_magnetization']:
+        if k in calc_params.keys() and k not in [ALL_BLOCKED_KEYWORDS]:
             pw_overrides["SYSTEM"][k] = calc_params[k]
 
     for k in pw_keys['electrons']:
