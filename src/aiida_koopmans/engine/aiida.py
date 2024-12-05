@@ -157,6 +157,8 @@ class AiiDAEngine(Engine):
                 delete_directory(pdos_dir.parent)
                 step.directory = prev_dir
 
+            self._step_completed_message(step)
+            
         self.dump_step_data()
 
     def load_old_calculator(self, calc: Calc):
