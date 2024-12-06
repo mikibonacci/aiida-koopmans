@@ -76,6 +76,7 @@ class AiiDAEngine(Engine):
         return
 
     def load_step_data(self):
+        # TODO: if all steps in the step data are completed, we do not need to run this method.
         try:
             with open('step_data.pkl', 'rb') as f:
                 # this will overwrite the step_data[configuration],
@@ -134,6 +135,7 @@ class AiiDAEngine(Engine):
 
     def load_results(self, step: Step) -> None:
 
+        # TODO: if the step is completed, we do not need to run this load_results method.
         self.load_step_data()
         
         if isinstance(step, Process):
