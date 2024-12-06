@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """`CalcJob` implementation for the kcw.x code of Quantum ESPRESSO."""
 from pathlib import Path
+import os
 
 from aiida import orm
 from aiida.plugins import DataFactory
 from aiida_quantumespresso.calculations.namelists import NamelistsCalculation
-
-SingleFileData = DataFactory('core.singlefile')
 
 class KcwCalculation(NamelistsCalculation):
     """`CalcJob` implementation for the kcw.x code of Quantum ESPRESSO.
@@ -45,13 +44,13 @@ class KcwCalculation(NamelistsCalculation):
         spec.input('kpoints', valid_type=orm.KpointsData, help='kpoint path if do_bands=True in the parameters', required=False)
         #spec.input('wann_occ_hr', valid_type=SingleFileData, help='wann_occ_hr', required=False)
         #spec.input('wann_emp_hr', valid_type=SingleFileData, help='wann_emp_hr', required=False)
-        spec.input('alpha_occ', valid_type=SingleFileData, help='alpha_occ', required=False)
-        spec.input('alpha_emp', valid_type=SingleFileData, help='alpha_emp', required=False)
-        spec.input('wann_u_mat', valid_type=SingleFileData, help='wann_occ_u', required=False)
-        spec.input('wann_emp_u_mat', valid_type=SingleFileData, help='wann_emp_u', required=False)
-        spec.input('wann_emp_u_dis_mat', valid_type=SingleFileData, help='wann_dis_u', required=False)
-        spec.input('wann_centres_xyz', valid_type=SingleFileData, help='wann_occ_centres', required=False)
-        spec.input('wann_emp_centres_xyz', valid_type=SingleFileData, help='wann_emp_centres', required=False)
+        spec.input('alpha_occ', valid_type=(orm.SinglefileData, orm.RemoteData), help='alpha_occ', required=False)
+        spec.input('alpha_emp', valid_type=(orm.SinglefileData, orm.RemoteData), help='alpha_emp', required=False)
+        spec.input('wann_u_mat', valid_type=(orm.SinglefileData, orm.RemoteData), help='wann_occ_u', required=False)
+        spec.input('wann_emp_u_mat', valid_type=(orm.SinglefileData, orm.RemoteData), help='wann_emp_u', required=False)
+        spec.input('wann_emp_u_dis_mat', valid_type=(orm.SinglefileData, orm.RemoteData), help='wann_dis_u', required=False)
+        spec.input('wann_centres_xyz', valid_type=(orm.SinglefileData, orm.RemoteData), help='wann_occ_centres', required=False)
+        spec.input('wann_emp_centres_xyz', valid_type=(orm.SinglefileData, orm.RemoteData), help='wann_emp_centres', required=False)
         spec.input('settings', valid_type=orm.Dict, required=True, default=lambda: orm.Dict({
             'CMDLINE': ["-in", cls._DEFAULT_INPUT_FILE],
             }), help='Use an additional node for special settings',) #validator=validate_parameters,)
@@ -78,12 +77,27 @@ class KcwCalculation(NamelistsCalculation):
 
     def prepare_for_submission(self, folder):
         calcinfo = super().prepare_for_submission(folder)
-
-        for wann_file in ['wann_u_mat','wann_emp_u_mat','wann_emp_u_dis_mat','wann_centres_xyz','wann_emp_centres_xyz']:
-            if hasattr(self.inputs,wann_file):
-                wannier_singelfiledata = getattr(self.inputs, wann_file)
-                calcinfo.local_copy_list.append((wannier_singelfiledata.uuid, wannier_singelfiledata.filename, wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
-
+                
+        for wann_input in ['wann_u_mat','wann_emp_u_mat','wann_emp_u_dis_mat','wann_centres_xyz','wann_emp_centres_xyz']:
+            wann_parent = getattr(self.inputs, wann_input, None)
+            if isinstance(wann_parent, orm.SinglefileData): # local copy to be send to the remote
+                calcinfo.local_copy_list.append((wann_parent.uuid, wann_parent.filename, wann_input.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
+            elif isinstance(wann_parent, orm.RemoteData):
+                # if remote, we symlink all the files
+                if wann_input == 'wann_u_mat':
+                    for wann_file in ['wann_u_mat', 'wann_centres_xyz']:
+                        calcinfo.remote_symlink_list.append(
+                            create_symlink_tuple(parent_folder = wann_parent,
+                                                filename = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida"), 
+                                                target = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
+                elif wann_input == 'wann_emp_u_mat':
+                    for wann_file in ['wann_emp_u_mat', 'wann_emp_centres_xyz', 'wann_emp_u_dis_mat']:
+                        calcinfo.remote_symlink_list.append(
+                            create_symlink_tuple(parent_folder = wann_parent,
+                                                filename = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida").replace("_emp",""), 
+                                                target = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
+                    
+        # TODO: fix the alphas copy
         for alpha_file in ['alpha_occ','alpha_emp']:
             if hasattr(self.inputs,alpha_file):
                 suffix = alpha_file.replace("alpha_occ","").replace("alpha_emp","_empty")
@@ -97,7 +111,14 @@ class KcwCalculation(NamelistsCalculation):
                 handle.write(kpoints_card)
                 
         return calcinfo
-    
+
+def create_symlink_tuple(parent_folder: orm.RemoteData, filename: str, target: str):
+    return (
+            parent_folder.computer.uuid,
+            os.path.join(parent_folder.get_remote_path(),
+                filename), target
+        )
+ 
 def prepare_kpoints_card(kpoints=None):
     # from the BasePwCpInputGenerator, I had to move it here as we cannot just inherit
     from aiida.common import exceptions

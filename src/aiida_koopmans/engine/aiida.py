@@ -133,6 +133,7 @@ class AiiDAEngine(Engine):
             elif workchain.is_finished or workchain.is_excepted or workchain.is_killed:
                 self._step_failed_message_by_uid(uid)
                 self.set_status_by_uid(uid, Status.FAILED)
+                raise ValueError(f"Workchain {workchain.pk} failed.")
 
             return
 
@@ -155,7 +156,9 @@ class AiiDAEngine(Engine):
         output = None
         if step.ext_out == ".wout":
             output = read_output_file(step, workchain.outputs.wannier90.retrieved)
-        elif step.ext_out in [".pwo",".kho"]:
+            if "remote_folder" in workchain.outputs.wannier90:
+                self.step_data['steps'][step.uid]['remote_folder'] = workchain.outputs.wannier90.remote_folder.pk
+        elif step.ext_out in [".pwo",".w2ko",".kso",".kho"]:
             output = read_output_file(step, workchain.outputs.retrieved)
             if hasattr(output.calc, 'kpts'):
                 step.kpts = output.calc.kpts
@@ -163,7 +166,7 @@ class AiiDAEngine(Engine):
             output = read_output_file(step, workchain.outputs.retrieved)
             
         
-        if step.ext_out in [".pwo",".pro",".wout",".kso",".kho"]:
+        if step.ext_out in [".pwo",".pro",".wout",".w2ko",".kso",".kho"]:
             step.calc = output.calc
             step.results = output.calc.results
             #if step.ext_out == ".pwo": step.generate_band_structure() #nelec=int(workchain.outputs.output_parameters.get_dict()['number_of_electrons']))
