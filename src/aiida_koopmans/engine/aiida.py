@@ -1,6 +1,6 @@
 from koopmans.engines.engine import Engine
 from koopmans.step import Step
-from koopmans.calculators import Calc
+from koopmans.calculators import Calc, ProjwfcCalculator
 from koopmans.pseudopotentials import read_pseudo_file
 from koopmans.status import Status
 from koopmans.files import FilePointer
@@ -17,6 +17,9 @@ from aiida_pseudo.data.pseudo import UpfData
 import time
 
 import dill as pickle
+import pathlib
+import tempfile
+import fnmatch
 
 from aiida import orm, load_profile
 load_profile()
@@ -60,7 +63,7 @@ class AiiDAEngine(Engine):
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
             self.set_status(step, Status.COMPLETED)
             return
-
+        
         self.step_data['steps'][step.uid] = {} # maybe not needed
 
         builder, self.step_data = get_builder_from_ase(calculator=step, step_data=self.step_data) # ASE to AiiDA conversion. put some error message if the conversion fails
@@ -139,6 +142,8 @@ class AiiDAEngine(Engine):
         self.load_step_data()
         
         if isinstance(step, Process):
+            step.load_outputs()
+            self._step_completed_message(step)
             return
         
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
@@ -156,13 +161,15 @@ class AiiDAEngine(Engine):
                 step.kpts = output.calc.kpts
         else:
             output = read_output_file(step, workchain.outputs.retrieved)
-        if step.ext_out in [".pwo",".wout",".kso",".kho"]:
+            
+        
+        if step.ext_out in [".pwo",".pro",".wout",".kso",".kho"]:
             step.calc = output.calc
             step.results = output.calc.results
-            if step.ext_out == ".pwo": step.generate_band_structure() #nelec=int(workchain.outputs.output_parameters.get_dict()['number_of_electrons']))
+            #if step.ext_out == ".pwo": step.generate_band_structure() #nelec=int(workchain.outputs.output_parameters.get_dict()['number_of_electrons']))
 
-            self._step_completed_message(step)
 
+        '''
         if step.ext_out in [".pro"]:
 
             pdos_dir = dump_pdos_outputs(step, workchain.outputs.retrieved)
@@ -179,9 +186,12 @@ class AiiDAEngine(Engine):
                 delete_directory(pdos_dir.parent)
                 step.directory = prev_dir
 
-            self._step_completed_message(step)
-            
+            self._step_completed_message(step
+            '''
+        step._post_run()
         self.dump_step_data()
+        self._step_completed_message(step)
+        
 
     def load_old_calculator(self, calc: Calc):
         raise NotImplementedError # load_old_calculator(calc)
@@ -209,6 +219,9 @@ class AiiDAEngine(Engine):
         return pseudo_data
     
     def read(self, file: FilePointer, binary=False) -> str | bytes:
+        if isinstance(file[0], Process):
+            singlefiledata = orm.load_node(self.step_data['steps'][file[0].uid][str(file.name)])
+            return singlefiledata.get_content(mode='rb')
         workchain = orm.load_node(self.step_data['steps'][file[0].uid]['workchain'])
         filename = str(file[1]).replace(file[0].prefix, 'aiida')
         if 'wannier90' in file[0].prefix:
@@ -225,19 +238,31 @@ class AiiDAEngine(Engine):
     def write(self, content: str | bytes, file: FilePointer) -> None:
         if 'inputs.pkl' in str(file[1]):
             return
-        if isinstance(file[0], Process):
-            filename = file[0].inputs.dst_file
-        else:
-            filename = str(file[1]).replace(file[0].prefix, 'aiida')
+        
+        filename = str(file.name)
         
         if isinstance(content, bytes):
-            # skip the dumping of the *out.pkl file, we don't want as SinglefileData
-            return
-        singlefile = orm.SinglefileData.from_string(content, filename)
+            singlefile = orm.SinglefileData.from_bytes(content, filename)
+        else:
+            singlefile = orm.SinglefileData.from_string(content, filename)
         singlefile.store()
-        self.step_data['steps'][file[0].uid][str(filename)] = singlefile.pk
+        self.step_data['steps'][file[0].uid][filename] = singlefile.pk
         return singlefile
     
-    def glob(self, pattern: FilePointer, recursive=False) -> Generator[FilePointer, None, None]:
-        raise NotImplementedError()
+    def glob(self, directory: FilePointer, pattern: str, recursive: bool = False) -> Generator[FilePointer, None, None]:
+
+        workchain = orm.load_node(self.step_data['steps'][directory.parent.uid]['workchain'])
+        if 'wannier90' in getattr(directory.parent, 'prefix', ''):
+            listnames =  workchain.outputs.wannier90.retrieved.base.repository.list_object_names()
+        else:
+            listnames = workchain.outputs.retrieved.base.repository.list_object_names()
         
+        for name in listnames:
+            tomatch = str(directory.name / pattern)
+            if hasattr(directory.parent, 'prefix'):
+                tomatch = tomatch.replace(directory.parent.prefix, 'aiida')
+            if isinstance(directory.parent, ProjwfcCalculator): # TODO: this is a hack, we need to find a better way to do this.
+                tomatch = tomatch.replace(directory.parent.parameters.filpdos, 'aiida')
+            if fnmatch.fnmatch(name, tomatch):
+                yield FilePointer(directory.parent, pathlib.Path(name))
+                

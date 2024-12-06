@@ -42,8 +42,8 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
 
     structure = None
     parent_folder = None
-    for step, val in step_data['steps'].items():
-        if "scf" in str(step) and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
+    for step_uid, val in step_data['steps'].items():
+        if "scf" in step_uid and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
             scf = orm.load_node(val["workchain"])
             structure = scf.inputs.pw.structure
             parent_folder = scf.outputs.remote_folder
