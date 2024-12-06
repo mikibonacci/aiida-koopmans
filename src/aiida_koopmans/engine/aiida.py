@@ -81,7 +81,11 @@ class AiiDAEngine(Engine):
                 # this will overwrite the step_data[configuration],
                 # i.e. if we change codes or res we will not see it if
                 # the file already exists.
-                self.step_data = pickle.load(f)
+                step_data = pickle.load(f)
+                # here we update the configuration if it is provided in the engine_config file.
+                # useful if we want to restart with different resources.
+                step_data['configuration'] = self.step_data.pop('configuration', step_data['configuration'])
+                self.step_data = step_data
         except FileNotFoundError:
             pass
 
@@ -110,12 +114,13 @@ class AiiDAEngine(Engine):
 
     def update_statuses(self) -> None:
         
-        #time.sleep(1)
         for uid in self.step_data['steps']:
 
             if not self.get_status_by_uid(uid) == Status.RUNNING:
                 continue
-
+            else:
+                time.sleep(5)
+            
             workchain = orm.load_node(self.step_data['steps'][uid]['workchain'])
             if workchain.is_finished_ok:
                 self._step_completed_message_by_uid(uid)
@@ -132,7 +137,6 @@ class AiiDAEngine(Engine):
         self.load_step_data()
         
         if isinstance(step, Process):
-            print(self.step_data['steps'][step.uid])
             return
         
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
