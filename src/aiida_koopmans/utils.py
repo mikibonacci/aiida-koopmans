@@ -212,18 +212,13 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     #resources
     builder.pw2wannier90.pw2wannier90.metadata = aiida_inputs["metadata"]
 
-    default_w90_metadata = {
-          "options": {
-            "max_wallclock_seconds": 3600,
-            "resources": {
+    default_w90_metadata_options_resources = {
                 "num_machines": 1,
                 "num_mpiprocs_per_machine": 1,
                 "num_cores_per_mpiproc": 1
-            },
-            "custom_scheduler_commands": "export OMP_NUM_THREADS=1"
-        }
-      }
-    builder.wannier90.wannier90.metadata = aiida_inputs.get('metadata_w90', default_w90_metadata)
+            }
+    builder.wannier90.wannier90.metadata = aiida_inputs["metadata"]
+    builder.wannier90.wannier90.metadata.options.resources = default_w90_metadata_options_resources
 
     builder.pw2wannier90.pw2wannier90.parent_folder = nscf.outputs.remote_folder
 
@@ -306,7 +301,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         if "nscf" in step_uid:
             nscf = orm.load_node(val["workchain"])
             parent_folder = nscf.outputs.remote_folder
-        if "kcw_wannier" in step_uid:
+        if "kcw_wannier" in step_uid and "workchain" in val:
             w2kc = orm.load_node(val["workchain"])
             parent_folder = w2kc.outputs.remote_folder
         
@@ -408,7 +403,6 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         builder.metadata = aiida_inputs["metadata_kcw"]
         
     if ext_out == ".kho":
-        breakpoint()
         # I provide kpoints as an array (output in the wannierized band structure), so I need to convert them. 
         kpoints = orm.KpointsData()
         kpoints.set_kpoints(kcw_calculator._parameters.kpts.kpts, cartesian=False)
@@ -425,9 +419,9 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         if wann_centres_xyz: builder.wann_centres_xyz = wann_centres_xyz
         if wann_emp_centres_xyz: builder.wann_emp_centres_xyz = wann_centres
         
-    if hasattr(kcw_calculator, "alphas"): # TODO: add support for this.
-        builder.alpha_occ = kcw_calculator.alphas_files["alpha"]
-        builder.alpha_emp = kcw_calculator.alphas_files["alpha_empty"]
+    #if hasattr(kcw_calculator, "alphas"): # TODO: add support for this.
+    #    builder.alpha_occ = kcw_calculator.alphas_files["alpha"]
+    #    builder.alpha_emp = kcw_calculator.alphas_files["alpha_empty"]
     
     return builder, step_data
 
