@@ -249,7 +249,9 @@ class AiiDAEngine(Engine):
         else:
             singlefile = orm.SinglefileData.from_string(content, filename)
         singlefile.store()
-        self.step_data['steps'][file[0].uid][filename] = singlefile.pk
+        if "input_files" not in self.step_data['steps'][file[0].uid]:
+            self.step_data['steps'][file[0].uid]['input_files'] = {}
+        self.step_data['steps'][file[0].uid]['input_files'][filename] = singlefile.pk
         return singlefile
     
     def glob(self, directory: FilePointer, pattern: str, recursive: bool = False) -> Generator[FilePointer, None, None]:

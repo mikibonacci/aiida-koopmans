@@ -297,6 +297,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     wann_emp_u_dis_mat = None
     wann_centres_xyz = None
     wann_emp_centres_xyz = None
+    alpha = None
     for step_uid, val in step_data['steps'].items():
         if "nscf" in step_uid:
             nscf = orm.load_node(val["workchain"])
@@ -305,17 +306,23 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
             w2kc = orm.load_node(val["workchain"])
             parent_folder = w2kc.outputs.remote_folder
         
-        # SinglefileData merged files:
+        # alphas singlefiledata files:
+        if "kcw_wannier" in step_uid and "input_files" in val:
+            if "file_alpharef.txt" in val['input_files']:
+                alpha = orm.load_node(val['input_files']['file_alpharef.txt'])
+        
+        # Wannier90 SinglefileData merged files:
         if "merge_occ_wannier_u" in step_uid:
-            wann_u_mat = orm.load_node(val['wannier90_u.mat'])
+            wann_u_mat = orm.load_node(val['input_files']['wannier90_u.mat'])
         if "merge_occ_wannier_centers" in step_uid:
-            wann_centres_xyz = orm.load_node(val['wannier90_centres.xyz'])
+            wann_centres_xyz = orm.load_node(val['input_files']['wannier90_centres.xyz'])
         if "merge_emp_wannier_u" in step_uid: # TODO: check if this is correct
-            wann_emp_u_mat = orm.load_node(val['wannier90_u.mat'])
+            wann_emp_u_mat = orm.load_node(val['input_files']['wannier90_u.mat'])
         if "merge_emp_wannier_centers" in step_uid:
-            wann_emp_centres_xyz = orm.load_node(val['wannier90_centres.xyz'])
+            wann_emp_centres_xyz = orm.load_node(val['input_files']['wannier90_centres.xyz'])
         if "merge_emp_wannier_u_dis" in step_uid:
-            wann_emp_u_dis_mat = orm.load_node(val['wannier90_u_dis.mat'])
+            wann_emp_u_dis_mat = orm.load_node(val['input_files']['wannier90_u_dis.mat'])
+        
         
         
     # RemoteData folders: this is when only one block in occ or emp manifold.
@@ -419,10 +426,9 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         if wann_centres_xyz: builder.wann_centres_xyz = wann_centres_xyz
         if wann_emp_centres_xyz: builder.wann_emp_centres_xyz = wann_centres
         
-    #if hasattr(kcw_calculator, "alphas"): # TODO: add support for this.
-    #    builder.alpha_occ = kcw_calculator.alphas_files["alpha"]
-    #    builder.alpha_emp = kcw_calculator.alphas_files["alpha_empty"]
-    
+    if alpha:
+        builder.alpha = alpha
+            
     return builder, step_data
 
 ## Here we have the mapping for the calculators initialization. used in the `aiida_calculate_trigger`.
