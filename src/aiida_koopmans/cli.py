@@ -18,9 +18,42 @@ from aiida.plugins import DataFactory
 
 
 # See aiida.cmdline.data entry point in setup.json
-@verdi_data.group("koopmans")
+@verdi_data.group("aiida-koopmans", context_settings={'help_option_names': ['-h', '--help']})
 def data_cli():
     """Command line interface for aiida-koopmans"""
+
+
+@data_cli.command("explore")
+def explore():
+    """Explore the aiida-koopmans step_data.pkl
+    
+    This is the pickle file produce at runtime by 
+    the koopmans ASE workflow when AiiDA engine is used.
+    """
+    import dill as pickle
+    with open('step_data.pkl', 'rb') as f:
+        data = pickle.load(f)
+    
+    for k,v in data["steps"].items():
+        print(f"{k}: {v}")
+
+@data_cli.command("remove")
+@click.argument("string", metavar="IDENTIFIER", type=str)
+def remove(string):
+    """Remove keys in the aiida-koopmans step_data.pkl
+    """
+    import dill as pickle
+    with open('step_data.pkl', 'rb') as f:
+        data = pickle.load(f)
+    
+    for k in list(data["steps"].keys()):
+        if string in k:
+            data["steps"].pop(k,None)
+    
+    with open('step_data.pkl', 'wb') as f:
+        pickle.dump(data, f)
+    
+    print(f"Removed step_data.pkl processes containing '{string}'")
 
 
 @data_cli.command("list")
@@ -29,17 +62,18 @@ def list_():  # pylint: disable=redefined-builtin
     """
     Display all DiffParameters nodes
     """
-    DiffParameters = DataFactory("koopmans")
+    raise NotImplementedError("This command is not implemented yet")
+    # DiffParameters = DataFactory("koopmans")
 
-    qb = QueryBuilder()
-    qb.append(DiffParameters)
-    results = qb.all()
+    # qb = QueryBuilder()
+    # qb.append(DiffParameters)
+    # results = qb.all()
 
-    s = ""
-    for result in results:
-        obj = result[0]
-        s += f"{str(obj)}, pk: {obj.pk}\n"
-    sys.stdout.write(s)
+    # s = ""
+    # for result in results:
+    #     obj = result[0]
+    #     s += f"{str(obj)}, pk: {obj.pk}\n"
+    # sys.stdout.write(s)
 
 
 @data_cli.command("export")
@@ -53,10 +87,11 @@ def list_():  # pylint: disable=redefined-builtin
 @decorators.with_dbenv()
 def export(node, outfile):
     """Export a DiffParameters node (identified by PK, UUID or label) to plain text."""
-    string = str(node)
+    raise NotImplementedError("This command is not implemented yet")
+    # string = str(node)
 
-    if outfile:
-        with open(outfile, "w", encoding="utf8") as f:
-            f.write(string)
-    else:
-        click.echo(string)
+    # if outfile:
+    #     with open(outfile, "w", encoding="utf8") as f:
+    #         f.write(string)
+    # else:
+    #     click.echo(string)

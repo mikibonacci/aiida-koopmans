@@ -96,8 +96,8 @@ class KcwCalculation(NamelistsCalculation):
                                                 filename = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida").replace("_emp",""), 
                                                 target = wann_file.replace("_mat",".mat").replace("_xyz",".xyz").replace("wann","aiida")))
                     
-        if hasattr(self.inputs,alpha_file):
-            alpha_singlefiledata = getattr(self.inputs, alpha_file)
+        if hasattr(self.inputs, "alpha"):
+            alpha_singlefiledata = getattr(self.inputs, "alpha")
             calcinfo.local_copy_list.append((alpha_singlefiledata.uuid, alpha_singlefiledata.filename,f'file_alpharef.txt'))
 
 

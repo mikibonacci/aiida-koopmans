@@ -44,13 +44,14 @@ class KcwParser(BaseParser):
                         temp_file.write_bytes(handle.read())
                 
                     output = io.read(temp_file)
-                    
-        if "eigenvalues" in output.calc.results.keys():
-            parsed_data["eigenvalues"] = output.calc.results["eigenvalues"]
+        
+        for k in ["eigenvalues", "ki_eigenvalues_on_grid", "pki_eigenvalues_on_grid", "ks_eigenvalues_on_grid"]:    
+            if k in output.calc.results.keys():
+                parsed_data[k] = output.calc.results[k]
             
         if "alphas" in output.calc.results.keys():
             parsed_data["alphas"] = output.calc.results["alphas"]
-
+        
         self.out('output_parameters', Dict(parsed_data))
 
         if 'ERROR_OUTPUT_STDOUT_INCOMPLETE'in logs.error:

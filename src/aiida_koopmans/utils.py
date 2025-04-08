@@ -43,11 +43,10 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
     structure = None
     parent_folder = None
     for step_uid, val in step_data['steps'].items():
-        if "scf" in step_uid and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
+        if "-scf" in step_uid and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
             scf = orm.load_node(val["workchain"])
             structure = scf.inputs.pw.structure
             parent_folder = scf.outputs.remote_folder
-            break
     
     if not structure:
         if isinstance(pw_calculator.atoms, AtomsKoopmans):
@@ -67,6 +66,11 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
     for k in pw_keys['system']:
         if k in calc_params.keys() and k not in [ALL_BLOCKED_KEYWORDS]:
             pw_overrides["SYSTEM"][k] = calc_params[k]
+        
+    # I need to do the following otherwise the ecutrho can be set to different values,
+    # and the wann2kc will fail because of this - there will be a FFT grid mismatch.
+    if "ecutwfc" in pw_overrides["SYSTEM"].keys():
+        pw_overrides["SYSTEM"]["ecutrho"] = pw_overrides["SYSTEM"]["ecutwfc"] * 4
 
     for k in pw_keys['electrons']:
         if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
@@ -82,7 +86,7 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
         electronic_type=ElectronicType.INSULATOR,
     )
     builder.pw.metadata = aiida_inputs["metadata"]
-
+    if "npools" in aiida_inputs.keys(): builder.pw.parallelization = orm.Dict(dict={"npool": aiida_inputs["npools"]})
     builder.kpoints = orm.KpointsData()
 
     if pw_overrides["CONTROL"]["calculation"] in ["scf", "nscf"]:
@@ -114,7 +118,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     from aiida_wannier90_workflows.utils.workflows.builder.submit import (
         submit_and_add_group,
     )
-    from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
+    from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain, Wannier90WorkChain
     load_profile()
 
     #nscf = w90_calculator.parent_folder.creator.caller # PwBaseWorkChain
@@ -131,40 +135,58 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     codes = {
         "pw": aiida_inputs["pw_code"],
         "pw2wannier90": aiida_inputs["pw2wannier90_code"],
-        #"projwfc": aiida_inputs["projwfc_code"],
+        "projwfc": aiida_inputs["projwfc_code"],
         "wannier90": aiida_inputs["wannier90_code"],
     }
 
-    builder = Wannier90BandsWorkChain.get_builder_from_protocol(
+    if all([p for p in nscf.inputs.pw.structure.pbc]):
+        w90_wchain = Wannier90BandsWorkChain
+    else:
+        w90_wchain = Wannier90WorkChain
+    
+    # Use nscf explicit kpoints
+    ## we do it first because if not a 3D system, kpath will except.
+    kpoints = orm.KpointsData()
+    kpoints.set_cell_from_structure(nscf.inputs.pw.structure)
+    kpoints.set_kpoints(nscf.outputs.output_band.get_array('kpoints'), cartesian=False)
+    
+    builder = w90_wchain.get_builder_from_protocol(
             codes=codes,
             structure=nscf.inputs.pw.structure,
             pseudo_family=step_data["pseudo_family"],
             protocol="moderate",
             projection_type=WannierProjectionType.ANALYTIC,
             print_summary=False,
+            #bands_kpoints=kpoints
         )
     
-    # Use nscf explicit kpoints
-    kpoints = orm.KpointsData()
-    kpoints.set_cell_from_structure(builder.structure)
-    kpoints.set_kpoints(nscf.outputs.output_band.get_array('kpoints'),cartesian=False)
     builder.wannier90.wannier90.kpoints = kpoints
 
-    # set kpath using the WannierizeWFL data.
-    k_coords = []
-    k_labels = []
-    k_path=w90_calculator.parameters.kpoint_path.kpts
-    special_k = w90_calculator.parameters.kpoint_path.todict()["special_points"]
-    k_linear,special_k_coords,special_k_labels = w90_calculator.parameters.kpoint_path.get_linear_kpoint_axis()
-    t=0
-    for coords,label in list(zip(special_k_coords,special_k_labels)):
-        t = np.where(k_linear==coords)[0]
-        k_labels.append([t[0],label])
-        k_coords.append(special_k[label].tolist())
+    
+    if all([p for p in nscf.inputs.pw.structure.pbc]):
+        # set kpath using the WannierizeWFL data.
+        kpoints_path = orm.KpointsData()
+        
+        k_coords = []
+        k_labels = []
 
-    kpoints_path = orm.KpointsData()
-    kpoints_path.set_kpoints(k_path,labels=k_labels,cartesian=False)
-    builder.kpoint_path  =  kpoints_path
+        k_path=w90_calculator.parameters.kpoint_path.kpts
+        special_k = w90_calculator.parameters.kpoint_path.todict()["special_points"]
+        k_linear,special_k_coords,special_k_labels = w90_calculator.parameters.kpoint_path.get_linear_kpoint_axis()
+        t=0
+        for coords,label in list(zip(special_k_coords,special_k_labels)):
+            t = np.where(k_linear==coords)[0]
+            k_labels.append([t[0],label])
+            k_coords.append(special_k[label].tolist())
+        
+        kpoints_path.set_kpoints(k_path,labels=k_labels,cartesian=False)
+        del builder.bands_kpoints
+        builder.kpoint_path  =  kpoints_path
+    # else:
+    #     k_path = kpoints.get_kpoints()
+    #     k_labels = [[0,"G"]]
+        
+    
 
 
     # Start parameters and projections setting using the Wannier90Calculator data.
@@ -210,7 +232,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     builder.wannier90.wannier90.parameters = params
 
     #resources
-    builder.pw2wannier90.pw2wannier90.metadata = aiida_inputs["metadata"]
+    builder.pw2wannier90.pw2wannier90.metadata = aiida_inputs.get("metadata_pw2wannier90", aiida_inputs["metadata"])
 
     default_w90_metadata_options_resources = {
                 "num_machines": 1,
@@ -229,7 +251,8 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     # adding pw2wannier90 parameters, required here. We should do in overrides.
     params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
     params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
-    if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: params_pw2wannier90['inputpp']["spin_component"] = "up"
+    if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: 
+        params_pw2wannier90['inputpp']["spin_component"] = builder.wannier90.wannier90.parameters.get_dict()["spin"]
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
 
     return builder, step_data
@@ -267,7 +290,7 @@ def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
     builder = ProjwfcCalculation.get_builder()
     builder.code = orm.load_code(aiida_inputs["projwfc_code"])
     builder.parameters = orm.Dict({"PROJWFC": projwfc_parameters})
-    builder.metadata = aiida_inputs["metadata"]
+    builder.metadata = aiida_inputs.get("metadata_projwfc", aiida_inputs["metadata"])
 
     parent_calculators = [
         f[0].uid for f in projwfc_calculator.linked_files.values() if f[0] is not None
@@ -298,20 +321,47 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     wann_centres_xyz = None
     wann_emp_centres_xyz = None
     alpha = None
+    read_unitary_matrix = False
+    kcw_at_ks = True
+    spin = None
+    for spin_c in ["spin_1","spin_2"]:
+        if spin_c in kcw_calculator.uid:
+            spin = spin_c
+        
     for step_uid, val in step_data['steps'].items():
+        if "wannier90" in step_uid:
+            read_unitary_matrix = True
+            kcw_at_ks = False
+        if "-dft" in step_uid:
+            dft = orm.load_node(val["workchain"])
+            parent_folder = dft.outputs.remote_folder
         if "nscf" in step_uid:
             nscf = orm.load_node(val["workchain"])
             parent_folder = nscf.outputs.remote_folder
         if "kcw_wannier" in step_uid and "workchain" in val:
-            w2kc = orm.load_node(val["workchain"])
-            parent_folder = w2kc.outputs.remote_folder
+            # here we need to distinguish between the two spin channels, if present,
+            # and only proceed if we are in the same spin channel.
+            if "spin" in kcw_calculator.uid:
+                for spin_channel in ["spin_1", "spin_2"]:
+                    if spin_channel in step_uid and spin_channel in kcw_calculator.uid:
+                        w2kc = orm.load_node(val["workchain"])
+                        parent_folder = w2kc.outputs.remote_folder
+            else:
+                w2kc = orm.load_node(val["workchain"])
+                parent_folder = w2kc.outputs.remote_folder
+                    
         
-        # alphas singlefiledata files:
-        if "kcw_wannier" in step_uid and "input_files" in val:
-            if "file_alpharef.txt" in val['input_files']:
+        # alphas singlefiledata files. we take the kcw_ham step as actually the alphas are stored there.
+        if "kcw_ham" in step_uid:
+            if "spin" in kcw_calculator.uid:
+                if spin not in step_uid: 
+                    continue
+            kcw_calculator.write_alphas()
+            if "file_alpharef.txt" in val.get('input_files',{}):
                 alpha = orm.load_node(val['input_files']['file_alpharef.txt'])
         
         # Wannier90 SinglefileData merged files:
+        # TODO: spin channel distinction.
         if "merge_occ_wannier_u" in step_uid:
             wann_u_mat = orm.load_node(val['input_files']['wannier90_u.mat'])
         if "merge_occ_wannier_centers" in step_uid:
@@ -327,19 +377,27 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         
     # RemoteData folders: this is when only one block in occ or emp manifold.
     # Instead of the SinglefileData (as searched above), we have only the RemoteData 
-    # of the wannnier90 calc.
+    # of the wannnier90 calc. linking this, will copy all the needed wann files (u, centres, etc.)
     # TODO: explain this logic.
     tmp_wann_emp_u_mat = None
+
     for step_uid, val in step_data['steps'].items():
-        
         # the first hit is the single block of occ manifold,
         # so we assign it and then we never hit again this block.
         if not wann_u_mat and "03-wannier90" in step_uid:
+            if "spin" in kcw_calculator.uid:
+                spin_wannier = get_spin_wannier_wkchain(orm.load_node(val["workchain"]))
+                if spin_wannier != spin:
+                    continue
             wann_u_mat = orm.load_node(val["remote_folder"])
 
         # we continue updating it up to the last hit.
         # the last hit is the single block of emp manifold
         if not wann_emp_u_mat and "03-wannier90" in step_uid: 
+            if "spin" in kcw_calculator.uid:
+                spin_wannier = get_spin_wannier_wkchain(orm.load_node(val["workchain"]))
+                if spin_wannier != spin:
+                    continue
             tmp_wann_emp_u_mat = orm.load_node(val["remote_folder"])
         
     if tmp_wann_emp_u_mat: wann_emp_u_mat = tmp_wann_emp_u_mat    
@@ -360,6 +418,9 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     for k in list(control_dict):
         if control_dict[k] is None:
             control_dict.pop(k)
+    if read_unitary_matrix:
+        control_dict["read_unitary_matrix"] = read_unitary_matrix
+        control_dict["kcw_at_ks"] = kcw_at_ks
 
     wannier_dict = {
         k: v if k in wannier_namelist else None
@@ -388,7 +449,13 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     for k in list(ham_dict):
         if ham_dict[k] is None:
             ham_dict.pop(k)
-            
+    
+    # NOTE, TODO: to be deleted! but I cannot do it correctly otherwise.
+    # if too many nbnd, I need to set it by hands for now. 
+    # otherwise it will do num_wann_emp = nbnd - num_wann_occ, but this should depend on the wannier projections!!!
+    hard_coded = 66 if spin == "spin_1" else 66
+    wannier_dict["num_wann_emp"] = hard_coded
+    
     kcw_params = {
         "CONTROL": control_dict,
         "WANNIER": wannier_dict,
@@ -412,24 +479,32 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     if ext_out == ".kho":
         # I provide kpoints as an array (output in the wannierized band structure), so I need to convert them. 
         kpoints = orm.KpointsData()
-        kpoints.set_kpoints(kcw_calculator._parameters.kpts.kpts, cartesian=False)
+        if len(kcw_calculator._parameters.kpts.kpts) == 0:
+            kpts = np.array([[0.0,0.0,0.0]])
+        else:
+            kpts = kcw_calculator._parameters.kpts.kpts
+        kpoints.set_kpoints(kpts, cartesian=False)
         builder.kpoints = kpoints 
     
     builder.parent_folder = parent_folder
 
     if control_dict.get(
-        "read_unitary_matrix", False
+        "read_unitary_matrix", read_unitary_matrix
     ):
         if wann_u_mat: builder.wann_u_mat = wann_u_mat
         if wann_emp_u_mat: builder.wann_emp_u_mat = wann_emp_u_mat
         if wann_emp_u_dis_mat: builder.wann_emp_u_dis_mat = wann_emp_u_dis_mat
         if wann_centres_xyz: builder.wann_centres_xyz = wann_centres_xyz
-        if wann_emp_centres_xyz: builder.wann_emp_centres_xyz = wann_centres
+        if wann_emp_centres_xyz: builder.wann_emp_centres_xyz = wann_emp_centres_xyz
         
     if alpha:
         builder.alpha = alpha
             
     return builder, step_data
+
+def get_spin_wannier_wkchain(node):
+    spin = node.inputs.wannier90.wannier90.parameters.get_dict()["spin"]
+    return "spin_1" if spin == "up" else "spin_2"
 
 ## Here we have the mapping for the calculators initialization. used in the `aiida_calculate_trigger`.
 mapping_calculators = {

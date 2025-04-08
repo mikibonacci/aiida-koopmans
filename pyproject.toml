@@ -24,7 +24,7 @@ requires-python = ">=3.7"
 dependencies = [
     "aiida-core>=2.5,<3",
     "voluptuous",
-    "aiida-quantumespresso~=4.6.0",
+    "aiida-quantumespresso>=4.6.0",
     "aiida-wannier90-workflows @ git+https://github.com/aiidateam/aiida-wannier90-workflows",
 ]
 
@@ -67,8 +67,8 @@ docs = [
 [project.entry-points."aiida.parsers"]
 "koopmans" = "aiida_koopmans.parsers.kcw:KcwParser"
 
-[project.entry-points."aiida.cmdline.data"]
-"koopmans" = "aiida_koopmans.cli:data_cli"
+[project.scripts]
+"aiida-koopmans" = "aiida_koopmans.cli:data_cli"
 
 [tool.flit.module]
 name = "aiida_koopmans"

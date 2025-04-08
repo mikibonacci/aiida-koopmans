@@ -221,9 +221,12 @@ class AiiDAEngine(Engine):
         
         return pseudo_data
     
+    def available_pseudo_families(self) -> set[str]:
+        return []
+    
     def read(self, file: FilePointer, binary=False) -> str | bytes:
         if isinstance(file[0], Process):
-            singlefiledata = orm.load_node(self.step_data['steps'][file[0].uid][str(file.name)])
+            singlefiledata = orm.load_node(self.step_data['steps'][file[0].uid]['input_files'][str(file.name)])
             return singlefiledata.get_content(mode='rb')
         workchain = orm.load_node(self.step_data['steps'][file[0].uid]['workchain'])
         filename = str(file[1]).replace(file[0].prefix, 'aiida')
