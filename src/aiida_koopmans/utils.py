@@ -37,12 +37,12 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
 
     load_profile()
 
-    aiida_inputs = step_data['configuration']
+    aiida_inputs = step_data.configuration
     calc_params = pw_calculator._parameters
 
     structure = None
     parent_folder = None
-    for step_uid, val in step_data['steps'].items():
+    for step_uid, val in step_data.steps.items():
         if "-scf" in step_uid and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
             scf = orm.load_node(val["workchain"])
             structure = scf.inputs.pw.structure
@@ -80,7 +80,7 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
         code=aiida_inputs["pw_code"],
         structure=structure,
         overrides={
-            "pseudo_family": step_data["pseudo_family"], # TODO: automatic store of pseudos from koopmans folder, if not.
+            "pseudo_family": step_data.pseudo_family, # TODO: automatic store of pseudos from koopmans folder, if not.
             "pw": {"parameters": pw_overrides},
         },
         electronic_type=ElectronicType.INSULATOR,
@@ -123,14 +123,14 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
 
     #nscf = w90_calculator.parent_folder.creator.caller # PwBaseWorkChain
     nscf = None
-    for step, val in step_data['steps'].items():
+    for step, val in step_data.steps.items():
             if "nscf" in str(step):
                 nscf = orm.load_node(val["workchain"])
     if not nscf:
         raise ValueError("No nscf step found.")
 
 
-    aiida_inputs = step_data['configuration']
+    aiida_inputs = step_data.configuration
 
     codes = {
         "pw": aiida_inputs["pw_code"],
@@ -153,7 +153,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     builder = w90_wchain.get_builder_from_protocol(
             codes=codes,
             structure=nscf.inputs.pw.structure,
-            pseudo_family=step_data["pseudo_family"],
+            pseudo_family=step_data.pseudo_family,
             protocol="moderate",
             projection_type=WannierProjectionType.ANALYTIC,
             print_summary=False,
@@ -180,7 +180,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
             k_coords.append(special_k[label].tolist())
         
         kpoints_path.set_kpoints(k_path,labels=k_labels,cartesian=False)
-        del builder.bands_kpoints
+        #del builder.bands_kpoints
         builder.kpoint_path  =  kpoints_path
     # else:
     #     k_path = kpoints.get_kpoints()
@@ -251,6 +251,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     # adding pw2wannier90 parameters, required here. We should do in overrides.
     params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
     params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
+    
     if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: 
         params_pw2wannier90['inputpp']["spin_component"] = builder.wannier90.wannier90.parameters.get_dict()["spin"]
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
@@ -268,7 +269,7 @@ def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
     Convert a `ProjwfcCalculator` into an AiiDA `ProjwfcCalculation
     """
 
-    aiida_inputs = step_data["configuration"]
+    aiida_inputs = step_data.configuration
     calc_params = projwfc_calculator._parameters
 
     # TODO: This is not needed, if we can just pass `orm.Dict(calc_params)` to the builder
@@ -291,17 +292,18 @@ def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
     builder.code = orm.load_code(aiida_inputs["projwfc_code"])
     builder.parameters = orm.Dict({"PROJWFC": projwfc_parameters})
     builder.metadata = aiida_inputs.get("metadata_projwfc", aiida_inputs["metadata"])
+    builder.metadata.options.additional_retrieve_list = ['aiida.pdos*']
 
     parent_calculators = [
-        f[0].uid for f in projwfc_calculator.linked_files.values() if f[0] is not None
+        f[0].parent_process.uid for f in projwfc_calculator.linked_files.values() if f[0] is not None
     ]
 
     if len(set(parent_calculators)) > 1:
         raise ValueError("More than one parent calculator found.")
     elif len(set(parent_calculators)) == 1:
-        if "remote_folder" in step_data["steps"][parent_calculators[0]]:
+        if "remote_folder" in step_data.steps[parent_calculators[0]]:
             builder.parent_folder = orm.load_node(
-                step_data["steps"][parent_calculators[0]]["remote_folder"]
+                step_data.steps[parent_calculators[0]]["remote_folder"]
             )
 
     return builder, step_data
@@ -311,7 +313,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     from aiida import load_profile, orm
     load_profile()
     
-    aiida_inputs = step_data["configuration"]
+    aiida_inputs = step_data.configuration
     
     # here we should find the parent folder and the wann files, merged or not (single block for emp or occ manifold).
     parent_folder = None
@@ -328,7 +330,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         if spin_c in kcw_calculator.uid:
             spin = spin_c
         
-    for step_uid, val in step_data['steps'].items():
+    for step_uid, val in step_data.steps.items():
         if "wannier90" in step_uid:
             read_unitary_matrix = True
             kcw_at_ks = False
@@ -344,6 +346,9 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
             if "spin" in kcw_calculator.uid:
                 for spin_channel in ["spin_1", "spin_2"]:
                     if spin_channel in step_uid and spin_channel in kcw_calculator.uid:
+                        w2kc = orm.load_node(val["workchain"])
+                        parent_folder = w2kc.outputs.remote_folder
+                    else: # not really spin channel, so we just provide the same parent folder.
                         w2kc = orm.load_node(val["workchain"])
                         parent_folder = w2kc.outputs.remote_folder
             else:
@@ -381,7 +386,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     # TODO: explain this logic.
     tmp_wann_emp_u_mat = None
 
-    for step_uid, val in step_data['steps'].items():
+    for step_uid, val in step_data.steps.items():
         # the first hit is the single block of occ manifold,
         # so we assign it and then we never hit again this block.
         if not wann_u_mat and "03-wannier90" in step_uid:
@@ -453,8 +458,8 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     # NOTE, TODO: to be deleted! but I cannot do it correctly otherwise.
     # if too many nbnd, I need to set it by hands for now. 
     # otherwise it will do num_wann_emp = nbnd - num_wann_occ, but this should depend on the wannier projections!!!
-    hard_coded = 66 if spin == "spin_1" else 66
-    wannier_dict["num_wann_emp"] = hard_coded
+    #hard_coded = 66 if spin == "spin_1" else 66
+    #wannier_dict["num_wann_emp"] = hard_coded
     
     kcw_params = {
         "CONTROL": control_dict,
@@ -550,14 +555,14 @@ def dump_pdos_outputs(calculator, retrieved):
     Dump the `pdos` output files of a projwfc.x calculation run via AiiDA to a temporary directory which is returned.
     """
 
-    output_dir = calculator.directory / pathlib.Path(tempfile.mkdtemp()).parts[-1]
+    output_dir = pathlib.Path('/tmp') / pathlib.Path(tempfile.mkdtemp()).parts[-1]
     output_dir.mkdir(exist_ok=True, parents=True)
 
     for filename in retrieved.base.repository.list_object_names():
         if ".pdos" in filename:
             # Create the file with the desired name
             output_file = pathlib.Path(output_dir) / (
-                f"{calculator.parameters.filpdos}." + filename.replace("aiida.", "")
+                filename.replace("aiida", f"{calculator.parameters.filpdos}")
             )
             with retrieved.open(filename, "rb") as handle:
                 output_file.write_bytes(handle.read())

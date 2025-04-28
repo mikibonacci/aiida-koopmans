@@ -26,7 +26,7 @@ class KcwCalculation(NamelistsCalculation):
     xml_path = Path(NamelistsCalculation._default_parent_output_folder
                     ).joinpath(f'{NamelistsCalculation._PREFIX}.save', 'data-file-schema.xml')
     _internal_retrieve_list = [
-        NamelistsCalculation._PREFIX + '.pdos*',
+        '*.dat'
     ]
     # The XML file is added to the temporary retrieve list since it is required for parsing, but already in the
     # repository of a an ancestor calculation.
