@@ -21,7 +21,7 @@ class KcwCalculation(NamelistsCalculation):
         ('WANNIER', 'seedname', NamelistsCalculation._PREFIX),
     ]
 
-    _default_parser = 'koopmans'
+    _default_parser = 'koopmans.kcw'
 
     xml_path = Path(NamelistsCalculation._default_parent_output_folder
                     ).joinpath(f'{NamelistsCalculation._PREFIX}.save', 'data-file-schema.xml')

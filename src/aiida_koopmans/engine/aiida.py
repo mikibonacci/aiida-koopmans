@@ -1,12 +1,12 @@
 from koopmans.engines.engine import Engine
 from koopmans.processes import ProcessProtocol
-from koopmans.calculators import Calc, ProjwfcCalculator
+from koopmans.calculators import Calc, ProjwfcCalculator, KoopmansCPCalculator
 from koopmans.pseudopotentials import read_pseudo_file
 from koopmans.status import Status
 from koopmans.files import File
-from koopmans.processes import Process
+from koopmans.processes import Process, CommandLineTool
 
-from typing import Generator, List
+from typing import Generator, List, Any
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import ClassVar
@@ -63,10 +63,26 @@ class AiiDAEngine(Engine):
         self.get_status(step)
 
         if isinstance(step, Process): # Process are not AiiDA calculations (more like merging files and so on)
-            step.run()
-            self.set_status(step, Status.COMPLETED)
-            self._step_completed_message(step)
-            return
+            if isinstance(step, CommandLineTool):
+                # prepare shell job
+                code, arguments, outputs = prepare_shell_job(process=step, step_data=self.step_data)
+                # launch shell job.
+                from aiida_shell import launch_shell_job
+                results, node = launch_shell_job(
+                    code,
+                    arguments=arguments,
+                    #outputs=outputs,
+                    submit=True,
+                )
+                print(f"Running shelljob {node.pk} for step {step.uid}")
+                self.step_data.steps[step.uid] = {'workchain': node.pk, }
+                self.set_status(step, Status.RUNNING)
+                return
+            else:
+                step.run()
+                self.set_status(step, Status.COMPLETED)
+                self._step_completed_message(step)
+                return
             
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
             self.set_status(step, Status.COMPLETED)
@@ -157,6 +173,12 @@ class AiiDAEngine(Engine):
         self.load_step_data()
         
         if isinstance(step, Process):
+            if isinstance(step, CommandLineTool):
+                if orm.load_node(self.step_data.steps[step.uid]['workchain']).is_finished_ok:
+                    step._set_outputs()
+                    self.set_status(step, Status.COMPLETED)
+                    self._step_completed_message(step)
+                    return
             step.load_outputs()
             self._step_completed_message(step)
             return
@@ -172,7 +194,7 @@ class AiiDAEngine(Engine):
             output = read_output_file(step, workchain.outputs.wannier90.retrieved)
             if "remote_folder" in workchain.outputs.wannier90:
                 self.step_data.steps[step.uid]['remote_folder'] = workchain.outputs.wannier90.remote_folder.pk
-        elif step.ext_out in [".pwo",".w2ko",".kso",".kho"]:
+        elif step.ext_out in [".pwo",".w2ko",".kso",".kho",".cpo"]:
             output = read_output_file(step, workchain.outputs.retrieved)
             if hasattr(output.calc, 'kpts'):
                 step.kpts = output.calc.kpts
@@ -180,10 +202,16 @@ class AiiDAEngine(Engine):
             output = read_output_file(step, workchain.outputs.retrieved)
             
         
-        if step.ext_out in [".pwo",".pro",".wout",".w2ko",".kso",".kho"]:
+        if step.ext_out in [".pwo",".pro",".wout",".w2ko",".kso",".kho",".cpo",".wko"]:
             step.calc = output.calc
             step.results = output.calc.results
             #if step.ext_out == ".pwo": step.generate_band_structure() #nelec=int(workchain.outputs.output_parameters.get_dict()['number_of_electrons']))
+            
+        # This maybe is not the right place to do this, but we need to set the results of the step.
+        if step.ext_out in [".cpo"]:
+            step.results['lambda'] = step.read_ham_files()
+            if step.parameters.do_bare_eigs:
+                step.results['bare lambda'] = step.read_ham_files(bare=True)
 
         step._post_run()
         self.dump_step_data()
@@ -197,13 +225,14 @@ class AiiDAEngine(Engine):
 
         qb = orm.QueryBuilder()
         qb.append(orm.Group, filters={'label': {'==': library}}, tag='pseudo_group')
-        qb.append(UpfData, filters={'attributes.element': {'==': element}}, with_group='pseudo_group')
-        
+        qb.append(UpfData, filters={'attributes.element': {'==': element}}, with_group='pseudo_group')   
+
         pseudo_data = None
+
         for pseudo in qb.all():
             with tempfile.TemporaryDirectory() as dirpath:
                 temp_file = pathlib.Path(dirpath) / (pseudo[0].base.attributes.all['element'] + '.upf')
-                with pseudo[0].open(pseudo[0].base.attributes.all['element'] + '.upf', 'rb') as handle:
+                with pseudo[0].open(pseudo[0].filename, 'rb') as handle:
                     temp_file.write_bytes(handle.read())
 
                 pseudo_data = read_pseudo_file(temp_file)
@@ -213,14 +242,35 @@ class AiiDAEngine(Engine):
         
         self.step_data.pseudo_family = library
         
-        return pseudo_data        
+        return pseudo_data     
+    
+    def read_ham_file(self, calculator: KoopmansCPCalculator, filename: Path) -> np.ndarray[Any, np.dtype[np.complex128]]:
+
+        new_filename = Path(str(filename).split("/")[-1])
+        
+        from koopmans.calculators._koopmans_cp import read_ham_file
+        
+        hamiltonian = None
+        retrieved = orm.load_node(self.step_data.steps[calculator.uid]['workchain']).outputs.retrieved
+        
+        with tempfile.TemporaryDirectory() as dirpath:
+            for _filename in retrieved.base.repository.list_object_names():
+                if str(new_filename) == _filename:
+                    # Create the file with the desired name
+                    output_file = pathlib.Path(dirpath) / _filename
+                    with retrieved.open(_filename, "rb") as handle:
+                        output_file.write_bytes(handle.read())
+                    
+                    hamiltonian = read_ham_file(output_file)
+        
+        return hamiltonian
     
     def read_file(self, file: File, binary=False) -> str | bytes:
         if isinstance(file.parent_process, Process):
             singlefiledata = orm.load_node(self.step_data.steps[file.parent_process.uid]['input_files'][str(file.name)])
             return singlefiledata.get_content(mode='rb')
         workchain = orm.load_node(self.step_data.steps[file.parent_process.uid]['workchain'])
-        filename = str(file.name).replace(file.parent_process.prefix, 'aiida')
+        filename = str(file.name).replace(file.parent_process.prefix, 'aiida').split("/")[-1]
         
         # additional replace for kc.kcw_hr_occ/emp.dat
         if "kcw_hr" in filename:
@@ -231,8 +281,8 @@ class AiiDAEngine(Engine):
         if 'wannier90' in file.parent_process.prefix:
             content =  workchain.outputs.wannier90.retrieved.get_object_content(filename, mode='r')
         else:
-            content =  workchain.outputs.retrieved.get_object_content(filename, mode='r')
-            
+            mode = "rb" if ((".dat" in filename or ".xml" in filename) and binary) else "r"
+            content =  workchain.outputs.retrieved.get_object_content(filename, mode=mode)
         # maybe unnecessary content post-processing
         '''content = content.split("\n")
         for line in range(len(content)):
@@ -319,6 +369,7 @@ class AiiDAEngine(Engine):
 
     def file_exists(self, file: File) -> bool:
         """Check if a file exists; should mimic Path.exists."""
+        return True
         raise NotImplementedError("Not needed for AiiDA engine")
     
     def file_is_dir(self, file: File) -> bool:

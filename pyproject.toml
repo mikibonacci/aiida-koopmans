@@ -52,11 +52,10 @@ docs = [
 ]
 
 # todo: Refine entry points here rather than just `koopmans`
-[project.entry-points."aiida.data"]
-"koopmans" = "aiida_koopmans.data:DiffParameters"
-
 [project.entry-points."aiida.calculations"]
-"koopmans" = "aiida_koopmans.calculations.kcw:KcwCalculation"
+"koopmans.kcw" = "aiida_koopmans.calculations.kcw:KcwCalculation"
+"koopmans.kcp" = "aiida_koopmans.calculations.kcp:KcpCalculation"
+"koopmans.wann2kcp" = "aiida_koopmans.calculations.wann2kcp:Wann2kcpCalculation"
 
 [project.entry-points."aiida.workflows"]
 "koopmans_workflow" = "aiida_koopmans.gui.koopmansworkchain.KoopmansWorkChain"
@@ -65,7 +64,9 @@ docs = [
 "koopmans" = "aiida_koopmans.gui.app:property"
 
 [project.entry-points."aiida.parsers"]
-"koopmans" = "aiida_koopmans.parsers.kcw:KcwParser"
+"koopmans.kcw" = "aiida_koopmans.parsers.kcw:KcwParser"
+"koopmans.kcp" = "aiida_koopmans.parsers.kcp:KcpParser"
+"koopmans.wann2kcp" = "aiida_koopmans.parsers.wann2kcp:Wann2kcpParser"
 
 [project.scripts]
 "aiida-koopmans" = "aiida_koopmans.cli:data_cli"

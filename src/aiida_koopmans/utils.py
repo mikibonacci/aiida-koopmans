@@ -17,19 +17,26 @@ from ase_koopmans import io
 from ase_koopmans.io.espresso import kch_keys, kcp_keys, kcs_keys, pw_keys, w2kcw_keys
 
 from aiida_koopmans.calculations.kcw import KcwCalculation
+from aiida_koopmans.calculations.kcp import KcpCalculation
+from aiida_koopmans.calculations.wann2kcp import Wann2kcpCalculation
+
 from aiida_koopmans.data.utils import generate_singlefiledata, generate_alpha_singlefiledata, produce_wannier90_files
+
+from koopmans.processes import Process, CommandLineTool
 
 LOCALHOST_NAME = "localhost-test"
 KCW_BLOCKED_KEYWORDS = [t[1] for t in KcwCalculation._blocked_keywords]
+KCP_BLOCKED_KEYWORDS = [t[1] for t in KcpCalculation._blocked_keywords]
 PW_BLOCKED_KEYWORDS = [t[1] for t in PwCalculation._blocked_keywords]
 PROJWFC_BLOCKED_KEYWORDS = [t[1] for t in ProjwfcCalculation._blocked_keywords]
 WANNIER90_BLOCKED_KEYWORDS = [t[1] for t in Wannier90Calculation._BLOCKED_PARAMETER_KEYS]
-ALL_BLOCKED_KEYWORDS = KCW_BLOCKED_KEYWORDS + PW_BLOCKED_KEYWORDS + WANNIER90_BLOCKED_KEYWORDS + PROJWFC_BLOCKED_KEYWORDS + [f'celldm({i})' for i in range (1,7)]
+ALL_BLOCKED_KEYWORDS = KCW_BLOCKED_KEYWORDS + KCP_BLOCKED_KEYWORDS + PW_BLOCKED_KEYWORDS + WANNIER90_BLOCKED_KEYWORDS + PROJWFC_BLOCKED_KEYWORDS + [f'celldm({i})' for i in range (1,7)]
 
 def get_builder_from_ase(calculator, step_data=None):
     return mapping_calculators[calculator.ext_out](calculator, step_data)
 
-# Pw calculator.
+# Pw calculator. 
+# TODO: check if this is called only in DFPT. In DSCF we always use kcp? apart in the wannierization step.
 def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
     from aiida import load_profile, orm
     from aiida_quantumespresso.common.types import ElectronicType
@@ -55,7 +62,10 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
 
     pw_overrides = {
         "CONTROL": {},
-        "SYSTEM": {"nosym": True, "noinv": True},
+        "SYSTEM": {
+            "nosym": True if "dfpt" in pw_calculator.uid else False, 
+            "noinv": True if "dfpt" in pw_calculator.uid else False,
+        },
         "ELECTRONS": {},
     }
 
@@ -149,7 +159,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     kpoints = orm.KpointsData()
     kpoints.set_cell_from_structure(nscf.inputs.pw.structure)
     kpoints.set_kpoints(nscf.outputs.output_band.get_array('kpoints'), cartesian=False)
-    
+        
     builder = w90_wchain.get_builder_from_protocol(
             codes=codes,
             structure=nscf.inputs.pw.structure,
@@ -162,17 +172,25 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     
     builder.wannier90.wannier90.kpoints = kpoints
 
-    
-    if all([p for p in nscf.inputs.pw.structure.pbc]):
+    # if not 0D, we should avoid seekpath as it can lead to a different primitive cell,
+    # and the pw2wannier90 will fail with "direct lattice mismatch". To reproduce, run 
+    # silicon without setting this kpoint_path in the Wannier90BandsWorkChain.
+    kpoint_path = None
+    if hasattr(w90_calculator, "kpoint_path"):
+        kpoint_path = w90_calculator.kpoint_path
+    elif hasattr(w90_calculator.parent_process.kpoints, "path"):
+        kpoint_path = w90_calculator.parent_process.kpoints.path
+        
+    if all([p for p in nscf.inputs.pw.structure.pbc]) and kpoint_path:
         # set kpath using the WannierizeWFL data.
         kpoints_path = orm.KpointsData()
         
         k_coords = []
         k_labels = []
 
-        k_path=w90_calculator.parameters.kpoint_path.kpts
-        special_k = w90_calculator.parameters.kpoint_path.todict()["special_points"]
-        k_linear,special_k_coords,special_k_labels = w90_calculator.parameters.kpoint_path.get_linear_kpoint_axis()
+        k_path=kpoint_path.kpts
+        special_k = kpoint_path.todict()["special_points"]
+        k_linear,special_k_coords,special_k_labels = kpoint_path.get_linear_kpoint_axis()
         t=0
         for coords,label in list(zip(special_k_coords,special_k_labels)):
             t = np.where(k_linear==coords)[0]
@@ -507,6 +525,174 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
             
     return builder, step_data
 
+def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
+    from aiida import load_profile, orm
+    load_profile()
+    
+    aiida_inputs = step_data.configuration
+    
+    kcp_calculator._autogenerate_nr() # needed because we skip the _pre_calculate step.
+    
+    calc_params = kcp_calculator._parameters
+        
+    structure = None
+    parent_folder = None
+    files_to_copy = None
+    file_alpharef = None
+    file_alpharef_empty = None
+    for step_uid, val in step_data.steps.items():
+        # TODO: do this in a more programmatic way,
+        # e.g. checking the linked files, then loading the files if are files,
+        # using parent_folder if files have a parent process which is a calculator.
+        if "dft_init_nspin1" in step_uid and step_uid != kcp_calculator.uid:
+            dft_init_nspin1 = orm.load_node(val["workchain"])
+            structure = dft_init_nspin1.inputs.structure
+        if  "dft_init_nspin2" in kcp_calculator.uid and not "dummy" in kcp_calculator.uid:
+            if "nspin2_dummy" in step_uid:
+                nspin2_dummy = orm.load_node(val["workchain"])
+                parent_folder = nspin2_dummy.outputs.remote_folder
+            if "convert_files_from_spin1to2" in step_uid:
+                files_to_copy = val["input_files"]
+    
+    if hasattr(kcp_calculator, "linked_files"):
+        if hasattr(kcp_calculator, "alphas") and not "input_files" in kcp_calculator.engine.step_data.steps[str(kcp_calculator.directory)]:
+            kcp_calculator.write_alphas() # NOTE: this should be automatically done in the Koopmans workflow, but somehow it is skipped.
+            step = kcp_calculator.engine.step_data.steps[str(kcp_calculator.directory)]
+            if "input_files" in step:
+                file_alpharef = orm.load_node(step["input_files"]["file_alpharef.txt"])
+                file_alpharef_empty = orm.load_node(step["input_files"]["file_alpharef_empty.txt"])
+
+        parent_directory = None
+
+        additional_files_K0001 = {} # each key is the pk of a process, and the value is a list of file names to be used in the kcp calcjob.
+        additional_files_wann2kcp = {}
+        for file_names in kcp_calculator.linked_files.keys():
+            if "TMP-CP" in file_names and file_names.split("/")[-1] == "TMP-CP" or "save" in file_names.split("/")[-1]: # not the case when pointing only to given files.
+                parent_directory = str(kcp_calculator.linked_files[file_names][0].parent_process.directory)
+                step = step_data.steps[parent_directory]
+                if "workchain" in step:
+                    parent_folder = orm.load_node(step["workchain"]).outputs.remote_folder
+        for file_names in kcp_calculator.linked_files.keys():
+            second_parent_directory = str(kcp_calculator.linked_files[file_names][0].parent_process.directory)
+            # we need to make this general, now I want it to work.
+            if "pz_print" in second_parent_directory:
+                if parent_directory and parent_directory != second_parent_directory:
+                    step = step_data.steps[second_parent_directory]
+                    if str(step["workchain"]) not in additional_files_K0001.keys():
+                        additional_files_K0001[str(step["workchain"])] = []
+                    additional_files_K0001[str(step["workchain"])].append(file_names.split("/")[-1])
+            elif "convert" in second_parent_directory or "merge_wavefunctions" in second_parent_directory:
+                if parent_directory and parent_directory != second_parent_directory:
+                    step = step_data.steps[second_parent_directory]
+                    if str(step["workchain"]) not in additional_files_wann2kcp.keys():
+                        additional_files_wann2kcp[str(step["workchain"])] = []
+                    additional_files_wann2kcp[str(step["workchain"])].append(
+                        (str(file_names).split("/")[-1], str(kcp_calculator.linked_files[file_names][0].name).split("/")[-1])
+                    )
+                    
+    
+    if not structure:
+        if isinstance(kcp_calculator.atoms, AtomsKoopmans):
+            ase_atoms = Atoms.fromdict(kcp_calculator.atoms.todict())
+        structure = orm.StructureData(ase=ase_atoms) 
+    
+    kcp_params = {k:{} for k in kcp_keys.keys()}
+    for namelist in kcp_keys.keys():
+        for k in kcp_keys[namelist]:
+            if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
+                kcp_params[namelist][k] = calc_params[k]
+            if "ion_radius" in k:
+                for radius in calc_params.keys():
+                    if "ion_radius(" in radius:
+                        kcp_params[namelist][radius] = calc_params[radius]
+
+    
+    # builder. 
+    builder = KcpCalculation.get_builder()
+    builder.structure = structure
+    builder.parameters = orm.Dict(kcp_params)
+    builder.code = orm.load_code(aiida_inputs["kcp_code"])
+    
+    family = orm.load_group(step_data.pseudo_family)
+    builder.pseudos = family.get_pseudos(structure=builder.structure)
+    
+    builder.metadata = aiida_inputs["metadata"]
+    if "metadata_kcp" in aiida_inputs:
+        builder.metadata = aiida_inputs["metadata_kcp"]
+
+    if parent_folder:
+        builder.parent_folder = parent_folder
+        
+    if files_to_copy:
+        builder.spin2_files = orm.List(list=[(k,v) for k,v in files_to_copy.items() if v is not None])
+        
+    if file_alpharef:
+        builder.file_alpharef = file_alpharef
+    if file_alpharef_empty:
+        builder.file_alpharef_empty = file_alpharef_empty
+        
+    if len(additional_files_K0001) > 0:
+        builder.additional_files_K0001 = orm.Dict(dict=additional_files_K0001)
+    if len(additional_files_wann2kcp) > 0:
+        builder.additional_files_wann2kcp = orm.Dict(dict=additional_files_wann2kcp)
+        
+    if "dummy" in kcp_calculator.uid:
+        builder.retrieve_dat_files = orm.Bool(True)
+                    
+    return builder, step_data
+
+def get_wann2kcp_builder_from_ase(wann2kcp_calculator, step_data=None):
+    
+    from aiida import load_profile, orm
+    load_profile()
+    
+    aiida_inputs = step_data.configuration
+    calc_params = wann2kcp_calculator._parameters
+    
+    
+    # TODO: This is not needed, if we can just pass `orm.Dict(calc_params)` to the builder
+    from koopmans.settings import Wann2KCPSettingsDict
+
+    wann2kcp_parameters = {}
+    wann2kcp_settings_dict = Wann2KCPSettingsDict()
+    wann2kcp_keys = (
+        wann2kcp_settings_dict.valid
+        + list(wann2kcp_settings_dict.defaults.keys())
+        + wann2kcp_settings_dict.are_paths
+    )
+    for k in wann2kcp_keys:
+        if k in calc_params.keys() and k not in ALL_BLOCKED_KEYWORDS:
+            wann2kcp_parameters[k] = calc_params[k]
+
+
+    builder = Wann2kcpCalculation.get_builder()
+    builder.code = orm.load_code(aiida_inputs["wann2kcp_code"])
+    builder.parameters = orm.Dict({"INPUTPP": wann2kcp_parameters})
+    builder.metadata = aiida_inputs.get("metadata_wann2kcp", aiida_inputs["metadata"])
+    #builder.metadata.options.additional_retrieve_list = ['wann2kcp_output*']
+
+    # we hardcode because we know it is always the case:
+    parent_wannier = orm.load_node(step_data.steps[str(wann2kcp_calculator.linked_files['wannier90.chk'][0].parent_process.directory)]["workchain"])
+    additional_files = {}
+    
+    for file_names in wann2kcp_calculator.linked_files.keys():
+        if "TMP" in file_names:
+            parent_directory = str(wann2kcp_calculator.linked_files[file_names][0].parent_process.directory)
+            step = step_data.steps[parent_directory]
+            if "workchain" in step:
+                parent_folder = orm.load_node(step["workchain"]).outputs.remote_folder
+        else:
+            parent_remote_wannier = parent_wannier.outputs.wannier90_pp.remote_folder.uuid if "nnkp" in file_names else parent_wannier.outputs.wannier90.remote_folder.uuid
+            if not parent_remote_wannier in additional_files.keys():
+                additional_files[parent_remote_wannier] = []
+            additional_files[parent_remote_wannier].append(file_names.replace("wannier90", "aiida"))
+
+    builder.parent_folder = parent_folder
+    builder.additional_files_wannier = orm.Dict(dict=additional_files)        
+
+    return builder, step_data
+    
+
 def get_spin_wannier_wkchain(node):
     spin = node.inputs.wannier90.wannier90.parameters.get_dict()["spin"]
     return "spin_1" if spin == "up" else "spin_2"
@@ -519,6 +705,8 @@ mapping_calculators = {
     ".w2ko": get_kcw_builder_from_ase,
     ".kso": get_kcw_builder_from_ase,
     ".kho": get_kcw_builder_from_ase,
+    ".cpo": get_kcp_builder_from_ase,
+    ".wko": get_wann2kcp_builder_from_ase,
 }
 
 kcw_inputs_keys = {
@@ -578,3 +766,27 @@ def delete_directory(dir_path):
         else:
             child.unlink()
     dir_path.rmdir()
+
+def prepare_shell_job(process: CommandLineTool, step_data: None):
+    # NOTE: for now, implemented specifically for merge_evc.x
+    import os
+    from aiida import load_profile, orm
+    from aiida_quantumespresso.calculations.projwfc import ProjwfcCalculation
+
+    load_profile()
+    
+    aiida_inputs = step_data.configuration
+    
+    code = orm.load_code(aiida_inputs["merge_evc_code"])
+    arguments = arguments = process.command.replace("merge_evc.x", "")
+
+    if hasattr(process, "linked_files"):
+        for j,file_name in enumerate(process.linked_files.keys()):
+            remote = orm.load_node(step_data.steps[str(process.linked_files[file_name].parent_process.directory)]["remote_folder"]).get_remote_path()
+            full_path = os.path.join(remote, process.linked_files[file_name].name)
+            arguments = arguments.replace(file_name, str(full_path))
+            
+    arguments_list = arguments.split()
+    outputs = [arguments_list[-1]]        
+
+    return code, arguments_list, outputs
