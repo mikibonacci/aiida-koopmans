@@ -37,6 +37,7 @@ class AiiDAStepData(BaseModel):
     configuration: dict
     steps: dict[str, dict] = Field(default_factory=dict)
     pseudo_family: str | None = None
+    structure: int | None = None
     
     #def some model validator or computed field:
         # here we add the logic to populate configuration by default

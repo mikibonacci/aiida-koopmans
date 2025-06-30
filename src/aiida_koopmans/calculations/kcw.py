@@ -98,13 +98,20 @@ class KcwCalculation(NamelistsCalculation):
                     
         if hasattr(self.inputs, "alpha"):
             alpha_singlefiledata = getattr(self.inputs, "alpha")
-            calcinfo.local_copy_list.append((alpha_singlefiledata.uuid, alpha_singlefiledata.filename,f'file_alpharef.txt'))
+            calcinfo.local_copy_list.append((alpha_singlefiledata.uuid, alpha_singlefiledata.filename,'file_alpharef.txt'))
 
 
         if hasattr(self.inputs,"kpoints"):
             kpoints_card = prepare_kpoints_card(self.inputs.kpoints)
             with folder.open(self.metadata.options.input_filename, 'a+') as handle:
                 handle.write(kpoints_card)
+                
+        del calcinfo.codes_info[0].stdin_name
+        calcinfo.codes_info[0].cmdline_params = self.inputs.settings.get('CMDLINE', [])
+        if "-in" not in calcinfo.codes_info[0].cmdline_params:
+            calcinfo.codes_info[0].cmdline_params.append("-in")
+        if self.inputs.metadata.options.input_filename not in calcinfo.codes_info[0].cmdline_params:
+            calcinfo.codes_info[0].cmdline_params.append(self.metadata.options.input_filename)
                 
         return calcinfo
 

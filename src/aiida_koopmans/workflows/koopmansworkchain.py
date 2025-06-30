@@ -7,7 +7,7 @@ from aiida.engine import ToContext
 
 from koopmans.workflows import KoopmansDFPTWorkflow, SinglepointWorkflow
 
-class KoopmansWorkChain(WorkChain):
+class KoopmansDFPTWorkChain(WorkChain):
     """WorkChain to run the koopmans package. Very simple, it is only needed for the GUI.
 
     Args:
@@ -38,24 +38,50 @@ class KoopmansWorkChain(WorkChain):
     
     def setup(self):
         wf = SinglepointWorkflow._fromjsondct(self.inputs.input_dictionary.get_dict())
+        if "atoms" not in wf.keys() and "structure" in self.inputs:
+            atoms = self.inputs.structure.get_ase().todict()
+            elements = self.inputs.structure.get_ase().get_chemical_symbols()
+            wf["atoms"] = {
+                "cell_parameters": {
+                "vectors": atoms["cell"].tolist(),
+                "units": "angstrom",
+                "periodic": all(atoms["pbc"])
+                },
+                "atomic_positions": {
+                "units": "angstrom",
+                "positions": [
+                    [e,p.tolist()] for e,p in zip(elements, atoms["positions"])
+                ]
+                }
+            }
+        
         self.ctx.workflow = KoopmansDFPTWorkflow.fromparent(wf)
-
-        return 
+        return
+    
+    # def should_run(self):
+    #     for job in self.ctx.step_data:
+    #         try:
+    #             run = ...
+            
     
     def run_process(self):
         # for now in the DFPT AiiDA wfl we just run_and_get_node, so no need to have the context.
+        # TODO: add the context to the workflow. and run in a loop.
+        # we should check that in the context step_data, all the processes are completed, so we can exit.
         self.ctx.workflow._run()
         return
         
     
     def results(self):
         
-        parent = orm.load_node(self.ctx.workflow.dft_wchains_pk[0])
-        bands_dft = merge_bands(parent.outputs.remote_folder, method="dft")
-        bands_koopmans = merge_bands(parent.outputs.remote_folder, method="koopmans")
+        #parent = orm.load_node(self.ctx.workflow.dft_wchains_pk[0])
+        #bands_dft = merge_bands(parent.outputs.remote_folder, method="dft")
+        #bands_koopmans = merge_bands(parent.outputs.remote_folder, method="koopmans")
         
-        self.out("interpolated_dft",bands_dft)
-        self.out("interpolated_koopmans",bands_koopmans)
+        #self.out("interpolated_dft",bands_dft)
+        #self.out("interpolated_koopmans",bands_koopmans)
+        
+        self.report("KoopmansDFPTWorkChain finished")
         
         return
     

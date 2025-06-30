@@ -47,12 +47,12 @@ def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
     aiida_inputs = step_data.configuration
     calc_params = pw_calculator._parameters
 
-    structure = None
+    structure = step_data.structure
     parent_folder = None
     for step_uid, val in step_data.steps.items():
         if "-scf" in step_uid and ("nscf" in pw_calculator.uid or "bands" in pw_calculator.uid):
             scf = orm.load_node(val["workchain"])
-            structure = scf.inputs.pw.structure
+            if not structure: structure = scf.inputs.pw.structure 
             parent_folder = scf.outputs.remote_folder
     
     if not structure:
@@ -349,6 +349,12 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
             spin = spin_c
         
     for step_uid, val in step_data.steps.items():
+        
+        if ("coarse" in step_uid) ^ ("coarse" in kcw_calculator.uid):
+            # if we are in the coarse step, we only consider other coarse steps.
+            # and if we are not, we only consider the non-coarse steps.
+            continue
+        
         if "wannier90" in step_uid:
             read_unitary_matrix = True
             kcw_at_ks = False
@@ -407,6 +413,11 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     for step_uid, val in step_data.steps.items():
         # the first hit is the single block of occ manifold,
         # so we assign it and then we never hit again this block.
+        if ("coarse" in step_uid) ^ ("coarse" in kcw_calculator.uid):
+            # if we are in the coarse step, we only consider other coarse steps.
+            # and if we are not, we only consider the non-coarse steps.
+            continue
+        
         if not wann_u_mat and "03-wannier90" in step_uid:
             if "spin" in kcw_calculator.uid:
                 spin_wannier = get_spin_wannier_wkchain(orm.load_node(val["workchain"]))
@@ -498,7 +509,18 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     builder.metadata = aiida_inputs["metadata"]
     if "metadata_kcw" in aiida_inputs:
         builder.metadata = aiida_inputs["metadata_kcw"]
-        
+
+    settings = {"CMDLINE":[]}
+    if "pencil_decomposition" in aiida_inputs:
+        settings["CMDLINE"].append("-pd")
+        settings["CMDLINE"].append(aiida_inputs["pencil_decomposition"])
+    if "kcw_npools" in aiida_inputs.keys() and ext_out != ".kho":
+        settings["CMDLINE"].append("-npools")
+        settings["CMDLINE"].append(aiida_inputs["kcw_npools"])
+
+    if len(settings["CMDLINE"]) > 0:
+        builder.settings = orm.Dict(dict=settings)
+
     if ext_out == ".kho":
         # I provide kpoints as an array (output in the wannierized band structure), so I need to convert them. 
         kpoints = orm.KpointsData()
@@ -522,7 +544,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
         
     if alpha:
         builder.alpha = alpha
-            
+             
     return builder, step_data
 
 def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
@@ -535,7 +557,7 @@ def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
     
     calc_params = kcp_calculator._parameters
         
-    structure = None
+    structure = step_data.structure
     parent_folder = None
     files_to_copy = None
     file_alpharef = None
@@ -546,7 +568,7 @@ def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
         # using parent_folder if files have a parent process which is a calculator.
         if "dft_init_nspin1" in step_uid and step_uid != kcp_calculator.uid:
             dft_init_nspin1 = orm.load_node(val["workchain"])
-            structure = dft_init_nspin1.inputs.structure
+            if not structure: structure = dft_init_nspin1.inputs.structure
         if  "dft_init_nspin2" in kcp_calculator.uid and not "dummy" in kcp_calculator.uid:
             if "nspin2_dummy" in step_uid:
                 nspin2_dummy = orm.load_node(val["workchain"])
