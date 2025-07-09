@@ -1,3 +1,5 @@
+import logging
+
 from koopmans.engines.engine import Engine
 from koopmans.processes import ProcessProtocol
 from koopmans.calculators import Calc, ProjwfcCalculator, KoopmansCPCalculator
@@ -25,7 +27,6 @@ import tempfile
 import fnmatch
 
 from aiida import orm, load_profile
-load_profile()
 
 class AiiDAStepData(BaseModel):
     """
@@ -34,7 +35,7 @@ class AiiDAStepData(BaseModel):
     - step_data = {calc.directory: {'workchain': workchain, 'remote_folder': remote_folder}}
     and any other info we need for AiiDA.
     """
-    configuration: dict
+    configuration: dict = Field(default_factory=dict)
     steps: dict[str, dict] = Field(default_factory=dict)
     pseudo_family: str | None = None
     structure: int | None = None
@@ -57,11 +58,13 @@ class AiiDAEngine(Engine):
     """
     name: ClassVar[str] = "AiiDAEngine"
     blocking: bool = True
-    step_data: AiiDAStepData
-    
-    def run(self, step: ProcessProtocol):
+    step_data: AiiDAStepData = Field(default_factory=lambda: AiiDAStepData())
 
-        self.get_status(step)
+    def model_post_init(self, context: Any, /) -> None:
+        load_profile()
+    
+    def run(self, step: ProcessProtocol, additional_flags: list[str] = []):
+        logger = logging.getLogger(__name__)
 
         if isinstance(step, Process): # Process are not AiiDA calculations (more like merging files and so on)
             if isinstance(step, CommandLineTool):
@@ -75,31 +78,31 @@ class AiiDAEngine(Engine):
                     #outputs=outputs,
                     submit=True,
                 )
-                print(f"Running shelljob {node.pk} for step {step.uid}")
+                logger.info(f"aiida-koopmans running shelljob {node.pk} for step {step.uid}")
                 self.step_data.steps[step.uid] = {'workchain': node.pk, }
                 self.set_status(step, Status.RUNNING)
                 return
             else:
                 step.run()
                 self.set_status(step, Status.COMPLETED)
-                self._step_completed_message(step)
                 return
             
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
             self.set_status(step, Status.COMPLETED)
             return
-        
+
         self.step_data.steps[step.uid] = {} # maybe not needed
 
         builder, self.step_data = get_builder_from_ase(calculator=step, step_data=self.step_data) # ASE to AiiDA conversion. put some error message if the conversion fails
         running = submit(builder)
-        print(f"Running workchain {running.pk} for step {step.uid}")
+        logger.info(f"aiida-koopmans submitted workchain {running.pk} for step {step.uid}")
         # running = aiidawrapperwchain.submit(builder) # in the non-blocking case.
         
         # The below will be passed to the context, so we will need to store also the instance of the submitted workchain, if in KoopmansWorkChain.
         self.step_data.steps[step.uid] = {'workchain': running.pk, } #'remote_folder': running.outputs.remote_folder}
 
         self.set_status(step, Status.RUNNING)
+        self._step_running_message(step, end='\n')
 
         return
 
@@ -111,41 +114,48 @@ class AiiDAEngine(Engine):
                 # i.e. if we change codes or res we will not see it if
                 # the file already exists.
                 step_data = pickle.load(f)
-                # here we update the configuration if it is provided in the engine_config file.
-                # useful if we want to restart with different resources.
-                #step_data['configuration'] = self.step_data.pop('configuration', step_data['configuration'])
-                step_data['configuration'].update(self.step_data.configuration)
-                
-                self.step_data = AiiDAStepData(**step_data)
         except FileNotFoundError:
-            pass
+            return
+
+        # here we update the configuration if it is provided in the engine_config file.
+        # useful if we want to restart with different resources.
+        #step_data['configuration'] = self.step_data.pop('configuration', step_data['configuration'])
+        step_data['configuration'].update(self.step_data.configuration)
+
+        for step_uid in step_data['steps']:
+            if step_uid not in self.step_data.steps:
+                self._step_skipped_message_by_uid(step_uid)
+        
+        self.step_data = AiiDAStepData(**step_data)
 
     def dump_step_data(self):
         step_data = self.step_data.model_dump()
         with open('step_data.pkl', 'wb') as f:
             pickle.dump(step_data, f)
 
-    def get_status(self, step: ProcessProtocol) -> Status:
+    def _get_status(self, step: ProcessProtocol) -> Status:
         status = self.get_status_by_uid(step.uid)
-        #print(f"Getting status for step {step.uid}: {status}")
         return status
-        
     
     def get_status_by_uid(self, uid: str) -> Status:
-        
         self.load_step_data()
         if uid not in self.step_data.steps:
             self.step_data.steps[uid] = {'status': Status.NOT_STARTED}
-        return self.step_data.steps[uid]['status']
+        status = self.step_data.steps[uid]['status']
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Fetching status of step with UID {uid}; it is {status}")
+        return status
 
-    def set_status(self, step: ProcessProtocol, status: Status):
+    def _set_status(self, step: ProcessProtocol, status: Status):
         self.set_status_by_uid(step.uid, status)
         
     def set_status_by_uid(self, uid: str, status: Status):
         self.step_data.steps[uid]['status'] = status
         self.dump_step_data()
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Setting status of step with UID {uid} to {status}")
 
-    def update_statuses(self) -> None:
+    def _update_statuses(self) -> None:
         
         for uid in self.step_data.steps:
 
@@ -153,35 +163,36 @@ class AiiDAEngine(Engine):
                 raise ValueError(f"The step {uid} failed.")
             elif not self.get_status_by_uid(uid) == Status.RUNNING:
                 continue
-            else:
-                time.sleep(5)
             
             workchain = orm.load_node(self.step_data.steps[uid]['workchain'])
             if workchain.is_finished_ok:
-                self._step_completed_message_by_uid(uid)
-                self.set_status_by_uid(uid, Status.COMPLETED)
+                if self.get_status_by_uid(uid) != Status.COMPLETED:
+                    self._step_completed_message_by_uid(uid)
+                    self.set_status_by_uid(uid, Status.COMPLETED)
 
             elif workchain.is_finished or workchain.is_excepted or workchain.is_killed:
-                self._step_failed_message_by_uid(uid)
                 self.set_status_by_uid(uid, Status.FAILED)
+                self._step_failed_message_by_uid(uid)
                 raise ValueError(f"Workchain {workchain.pk} failed.")
 
             return
+
+    def _steps_are_running(self) -> bool:
+        """Check if any step is running."""
+        self.update_statuses()
+        return Status.RUNNING in [v['status'] for v in self.step_data.steps.values()]
 
     def load_results(self, step: ProcessProtocol) -> None:
 
         # TODO: if the step is completed, we do not need to run this load_results method.
         self.load_step_data()
-        
+
         if isinstance(step, Process):
             if isinstance(step, CommandLineTool):
                 if orm.load_node(self.step_data.steps[step.uid]['workchain']).is_finished_ok:
                     step._set_outputs()
-                    self.set_status(step, Status.COMPLETED)
-                    self._step_completed_message(step)
                     return
             step.load_outputs()
-            self._step_completed_message(step)
             return
         
         if step.prefix in ['wannier90_preproc', 'pw2wannier90']:
@@ -202,7 +213,6 @@ class AiiDAEngine(Engine):
         else:
             output = read_output_file(step, workchain.outputs.retrieved)
             
-        
         if step.ext_out in [".pwo",".pro",".wout",".w2ko",".kso",".kho",".cpo",".wko"]:
             step.calc = output.calc
             step.results = output.calc.results
@@ -216,7 +226,8 @@ class AiiDAEngine(Engine):
 
         step._post_run()
         self.dump_step_data()
-        self._step_completed_message(step)
+
+        # self._step_completed_message(step)
         
 
     def load_old_calculator(self, calc: Calc):

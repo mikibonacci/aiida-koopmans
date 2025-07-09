@@ -157,11 +157,9 @@ def get_output_content(calculator, filename, mode="r", inner_remote_folder=None)
     
 # Pw calculator.
 def get_builder_from_ase(pw_calculator):
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_quantumespresso.common.types import ElectronicType
     from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain, PwCalculation
-
-    load_profile()
 
     """
     We should check automatically on the accepted keywords in PwCalculation and where are. Should be possible.
@@ -228,9 +226,7 @@ def from_wann2kc_to_KcwCalculation(wann2kc_calculator):
     The input parent folder is meant to be set later, at least for now.
     """
 
-    from aiida import load_profile, orm
-
-    load_profile()
+    from aiida import orm
 
     builder = KcwCalculation.get_builder()
     wann2kc_control_namelist = w2kcw_keys['control']
@@ -292,11 +288,9 @@ def from_kcwham_to_KcwCalculation(kcw_calculator):
     The input parent folder is meant to be set later, at least for now.
     """
 
-    from aiida import load_profile, orm
+    from aiida import orm
 
     from aiida_koopmans.calculations.kcw import KcwCalculation
-
-    load_profile()
 
     builder = KcwCalculation.get_builder()
 
@@ -383,11 +377,9 @@ def from_kcwscreen_to_KcwCalculation(kcw_calculator):
     The input parent folder is meant to be set later, at least for now.
     """
 
-    from aiida import load_profile, orm
+    from aiida import orm
 
     from aiida_koopmans.calculations.kcw import KcwCalculation
-
-    load_profile()
 
     builder = KcwCalculation.get_builder()
 
@@ -456,7 +448,7 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
     # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator.
     # in this way we have everything we need for each different block of the wannierization step.
 
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_wannier90_workflows.common.types import WannierProjectionType
     from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
     from aiida_wannier90_workflows.utils.workflows.builder.serializer import (
@@ -471,7 +463,6 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
         submit_and_add_group,
     )
     from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain
-    load_profile()
 
     nscf = w90_calculator.parent_folder.creator.caller # PwBaseWorkChain
     aiida_inputs = w90_calculator.parameters.mode
@@ -531,8 +522,8 @@ def get_wannier90bandsworkchain_builder_from_ase(w90_calculator):
     for proj in w90_calculator.todict()['_parameters']["projections"]:
         # for now we support only the following conversion:
         # proj={'fsite': [0.0, 0.0, 0.0], 'ang_mtm': 'sp3'} ==> converted_proj="f=0.0,0.0,0.0:sp3"
-        if "fsite" in proj.keys():
-            position = "f="+str(proj["fsite"]).replace("[","").replace("]","").replace(" ","")
+        if "fractional_site" in proj.keys():
+            position = "f="+str(proj["fractional_site"]).replace("[","").replace("]","").replace(" ","")
         elif "site" in proj.keys():
             position = str(proj["site"])
         orbital = proj["ang_mtm"]

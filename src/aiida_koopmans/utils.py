@@ -38,14 +38,15 @@ def get_builder_from_ase(calculator, step_data=None):
 # Pw calculator. 
 # TODO: check if this is called only in DFPT. In DSCF we always use kcp? apart in the wannierization step.
 def get_PwBaseWorkChain_from_ase(pw_calculator, step_data=None):
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_quantumespresso.common.types import ElectronicType
     from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain, PwCalculation
 
-    load_profile()
-
     aiida_inputs = step_data.configuration
     calc_params = pw_calculator._parameters
+
+    if calc_params.get("nspin", 1) == 1:
+        calc_params.pop("tot_magnetization", None)
 
     structure = step_data.structure
     parent_folder = None
@@ -114,7 +115,7 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     # get the builder from WannierizeWorkflow, but after we already initialized a Wannier90Calculator.
     # in this way we have everything we need for each different block of the wannierization step.
 
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_wannier90_workflows.common.types import WannierProjectionType
     from aiida_wannier90_workflows.utils.kpoints import get_explicit_kpoints_from_mesh
     from aiida_wannier90_workflows.utils.workflows.builder.serializer import (
@@ -129,7 +130,6 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
         submit_and_add_group,
     )
     from aiida_wannier90_workflows.workflows import Wannier90BandsWorkChain, Wannier90WorkChain
-    load_profile()
 
     #nscf = w90_calculator.parent_folder.creator.caller # PwBaseWorkChain
     nscf = None
@@ -225,11 +225,14 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     converted_projs = []
     for proj in w90_calculator.todict()['_parameters']["projections"]:
         # for now we support only the following conversion:
-        # proj={'fsite': [0.0, 0.0, 0.0], 'ang_mtm': 'sp3'} ==> converted_proj="f=0.0,0.0,0.0:sp3"
-        if "fsite" in proj.keys():
-            position = "f="+str(proj["fsite"]).replace("[","").replace("]","").replace(" ","")
-        elif "site" in proj.keys():
+        if proj["fractional_site"]:
+            position = "f="+str(proj["fractional_site"]).strip("[]").replace(" ", "")
+        elif proj["cartesian_site"]:
+            position = "c="+str(proj["cartesian_site"]).strip("[]").replace(" ", "")
+        elif proj["site"]:
             position = str(proj["site"])
+        else:
+            raise ValueError("No site information found in the projection: {}".format(proj))
         orbital = proj["ang_mtm"]
         converted_proj = position+":"+orbital
         converted_projs.append(converted_proj)
@@ -271,17 +274,15 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
     params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
     
     if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: 
-        params_pw2wannier90['inputpp']["spin_component"] = builder.wannier90.wannier90.parameters.get_dict()["spin"]
+        params_pw2wannier90['inputpp']["spin_component"] = builder.wannier90.wannier90.parameters.get_dict().get("spin", "up")
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
 
     return builder, step_data
 
 
 def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_quantumespresso.calculations.projwfc import ProjwfcCalculation
-
-    load_profile()
 
     """
     Convert a `ProjwfcCalculator` into an AiiDA `ProjwfcCalculation
@@ -328,8 +329,7 @@ def get_projwfc_builder_from_ase(projwfc_calculator, step_data=None):
 
 def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
 
-    from aiida import load_profile, orm
-    load_profile()
+    from aiida import orm
     
     aiida_inputs = step_data.configuration
     
@@ -548,8 +548,7 @@ def get_kcw_builder_from_ase(kcw_calculator, step_data=None):
     return builder, step_data
 
 def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
-    from aiida import load_profile, orm
-    load_profile()
+    from aiida import orm
     
     aiida_inputs = step_data.configuration
     
@@ -665,8 +664,7 @@ def get_kcp_builder_from_ase(kcp_calculator, step_data=None):
 
 def get_wann2kcp_builder_from_ase(wann2kcp_calculator, step_data=None):
     
-    from aiida import load_profile, orm
-    load_profile()
+    from aiida import orm
     
     aiida_inputs = step_data.configuration
     calc_params = wann2kcp_calculator._parameters
@@ -792,11 +790,9 @@ def delete_directory(dir_path):
 def prepare_shell_job(process: CommandLineTool, step_data: None):
     # NOTE: for now, implemented specifically for merge_evc.x
     import os
-    from aiida import load_profile, orm
+    from aiida import orm
     from aiida_quantumespresso.calculations.projwfc import ProjwfcCalculation
 
-    load_profile()
-    
     aiida_inputs = step_data.configuration
     
     code = orm.load_code(aiida_inputs["merge_evc_code"])
