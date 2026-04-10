@@ -268,10 +268,13 @@ def get_Wannier90BandsWorkChain_builder_from_ase(w90_calculator, step_data=None)
 
     # adding pw2wannier90 parameters, required here. We should do in overrides.
     params_pw2wannier90 = builder.pw2wannier90.pw2wannier90.parameters.get_dict()
-    params_pw2wannier90['inputpp']["wan_mode"] =  "standalone"
+    # The builder may store the namelist as 'inputpp' or 'inputpp'; pop either and write back as uppercase.
+    inputpp_val = params_pw2wannier90.pop('inputpp', params_pw2wannier90.pop('inputpp', {}))
+    inputpp_val["wan_mode"] = "standalone"
     
     if nscf.inputs.pw.parameters.get_dict()["SYSTEM"]["nspin"]>1: 
-        params_pw2wannier90['inputpp']["spin_component"] = builder.wannier90.wannier90.parameters.get_dict()["spin"]
+        inputpp_val["spin_component"] = builder.wannier90.wannier90.parameters.get_dict()["spin"]
+    params_pw2wannier90['inputpp'] = inputpp_val
     builder.pw2wannier90.pw2wannier90.parameters = orm.Dict(dict=params_pw2wannier90)
 
     return builder, step_data
@@ -689,7 +692,7 @@ def get_wann2kcp_builder_from_ase(wann2kcp_calculator, step_data=None):
 
     builder = Wann2kcpCalculation.get_builder()
     builder.code = orm.load_code(aiida_inputs["wann2kcp_code"])
-    builder.parameters = orm.Dict({"INPUTPP": wann2kcp_parameters})
+    builder.parameters = orm.Dict({"inputpp": wann2kcp_parameters})
     builder.metadata = aiida_inputs.get("metadata_wann2kcp", aiida_inputs["metadata"])
     #builder.metadata.options.additional_retrieve_list = ['wann2kcp_output*']
 

@@ -24,18 +24,57 @@ def data_cli():
 
 
 @data_cli.command("explore")
-def explore():
+@click.argument("step_data_pkl", metavar="IDENTIFIER", type=str, required=False, default="step_data.pkl")
+def explore(step_data_pkl):
     """Explore the aiida-koopmans step_data.pkl
     
     This is the pickle file produce at runtime by 
     the koopmans ASE workflow when AiiDA engine is used.
+
+    step_data_pkl is the file containing the steps
+    and their parameters, which is produced by the ASE workflow.
+    If not specified, it defaults to 'step_data.pkl'.
     """
     import dill as pickle
-    with open('step_data.pkl', 'rb') as f:
+    with open(step_data_pkl, 'rb') as f:
         data = pickle.load(f)
     
     for k,v in data["steps"].items():
         print(f"{k}: {v}")
+
+@data_cli.command("kcw_ham_res")
+@click.argument("step_data_pkl", metavar="IDENTIFIER", type=str, required=False, default="step_data.pkl")
+def kcw_ham_res(step_data_pkl):
+    """Explore the aiida-koopmans step_data.pkl
+    
+    This is the pickle file produce at runtime by 
+    the koopmans ASE workflow when AiiDA engine is used.
+
+    step_data_pkl is the file containing the steps
+    and their parameters, which is produced by the ASE workflow.
+    If not specified, it defaults to 'step_data.pkl'.
+    """
+    import dill as pickle
+    with open(step_data_pkl, 'rb') as f:
+        data = pickle.load(f)
+    
+    for k,v in data["steps"].items():
+        if "kcw_ham" in k:
+            import subprocess
+            # run a command to get the results
+            command = subprocess.run(
+                ["verdi", "calcjob", "outputcat", str(v["workchain"])],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if command.returncode == 0:
+                # Filter output for lines containing 'highe'
+                output_lines = command.stdout.decode('utf-8').splitlines()
+                filtered = [line for line in output_lines if "highe" in line]
+                print(f"Results for {k}, pk= {v['workchain']}:")
+                print("\n".join(filtered))
+            else:
+                print(f"Error running command for {k}: {command.stderr.decode('utf-8')}")
 
 @data_cli.command("remove")
 @click.argument("string", metavar="IDENTIFIER", type=str)

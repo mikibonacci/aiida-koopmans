@@ -8,7 +8,11 @@ from aiida.plugins import DataFactory
 from aiida.common import datastructures, exceptions
 from aiida.common.warnings import AiidaDeprecationWarning
 
-from aiida_quantumespresso.calculations import _lowercase_dict, _uppercase_dict
+from aiida_quantumespresso.calculations import _uppercase_dict, _case_transform_dict
+
+
+def _lowercase_dict(dictionary, dict_name):
+    return _case_transform_dict(dictionary, dict_name, '_lowercase_dict', str.lower)
 from aiida_quantumespresso.utils.convert import convert_input_to_namelist_entry
 from aiida_quantumespresso.calculations.pp import PpCalculation
 
