@@ -26,6 +26,8 @@ dependencies = [
     "voluptuous",
     "aiida-quantumespresso~=4.6.0",
     "aiida-wannier90-workflows @ git+https://github.com/mikibonacci/aiida-wannier90-workflows.git@nscf_parent",
+    "koopmans @ git+https://github.com/mikibonacci/koopmans.git@aiida/kcp",
+    "ase-koopmans @ git+https://github.com/mikibonacci/ase_koopmans.git@add/pKI_diag#egg=ase-koopmans",
 ]
 
 [project.urls]
